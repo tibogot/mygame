@@ -1,0 +1,296 @@
+import React, { useRef, Suspense } from "react";
+import {
+  EffectComposer,
+  SSAO,
+  SMAA,
+  N8AO,
+  GodRays,
+} from "@react-three/postprocessing";
+import { BlendFunction, KernelSize, SMAAPreset } from "postprocessing";
+import { useControls } from "leva";
+import { VolumetricFog } from "./VolumetricFog.tsx";
+import { Sun } from "./Sun.tsx";
+import { RainEffectPostprocessing } from "./RainEffectPostprocessing.tsx";
+
+/**
+ * Post-Processing Effects for Map5
+ *
+ * Includes:
+ * - N8AO (Advanced Ambient Occlusion)
+ * - Volumetric Fog (Raymarched)
+ * - God Rays (Volumetric Light)
+ * - SMAA anti-aliasing
+ */
+export const SSAOEffect = () => {
+  const sunRef = useRef();
+
+  const { enablePostProcessing } = useControls("🎨 Post-Processing (Map5)", {
+    enablePostProcessing: {
+      value: false,
+      label: "✨ Enable Post-Processing",
+    },
+  });
+
+  const {
+    enabled,
+    aoRadius,
+    distanceFalloff,
+    intensity,
+    color,
+    aoSamples,
+    denoiseSamples,
+    denoiseRadius,
+    halfRes,
+  } = useControls("N8AO Ambient Occlusion (Map5)", {
+    enabled: {
+      value: false,
+      label: "✨ Enable N8AO",
+    },
+    aoRadius: {
+      value: 2.0,
+      min: 0.1,
+      max: 50.0,
+      step: 0.5,
+      label: "📏 AO Radius (world units)",
+    },
+    distanceFalloff: {
+      value: 1.0,
+      min: 0.1,
+      max: 5.0,
+      step: 0.1,
+      label: "📉 Distance Falloff",
+    },
+    intensity: {
+      value: 5.0,
+      min: 0.0,
+      max: 20.0,
+      step: 0.5,
+      label: "💪 Intensity (darkness)",
+    },
+    color: {
+      value: "#000000",
+      label: "🎨 AO Color",
+    },
+    aoSamples: {
+      value: 16,
+      min: 4,
+      max: 64,
+      step: 1,
+      label: "🎯 AO Samples (quality)",
+    },
+    denoiseSamples: {
+      value: 4,
+      min: 1,
+      max: 16,
+      step: 1,
+      label: "🔧 Denoise Samples",
+    },
+    denoiseRadius: {
+      value: 6,
+      min: 1,
+      max: 24,
+      step: 1,
+      label: "🔄 Denoise Radius",
+    },
+    halfRes: {
+      value: false,
+      label: "📊 Half Resolution (breaks HDRI!)",
+    },
+  });
+
+  const {
+    godRaysEnabled,
+    samples,
+    density,
+    decay,
+    weight,
+    exposure,
+    clampMax,
+    blur,
+  } = useControls("☀️ GodRays (Map5)", {
+    godRaysEnabled: {
+      value: false,
+      label: "✨ Enable GodRays",
+    },
+    samples: {
+      value: 30,
+      min: 15,
+      max: 100,
+      step: 5,
+      label: "🎯 Samples (Quality)",
+    },
+    density: {
+      value: 0.8,
+      min: 0.5,
+      max: 1.0,
+      step: 0.01,
+      label: "💨 Density",
+    },
+    decay: {
+      value: 0.88,
+      min: 0.5,
+      max: 1.0,
+      step: 0.01,
+      label: "📉 Decay",
+    },
+    weight: {
+      value: 0.05,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+      label: "⚖️ Weight",
+    },
+    exposure: {
+      value: 0.1,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+      label: "💡 Exposure",
+    },
+    clampMax: {
+      value: 0.3,
+      min: 0.1,
+      max: 2.0,
+      step: 0.05,
+      label: "🔆 Max Brightness",
+    },
+    blur: {
+      value: true,
+      label: "🌀 Blur (Smoothing)",
+    },
+  });
+
+  const { enableRainPP, rainIntensityPP, dropletIntensityPP, rainSpeedPP } =
+    useControls("🌧️ Rain PP (Map5)", {
+      enableRainPP: {
+        value: false,
+        label: "💧 Enable Rain (Post-Processing)",
+      },
+      rainIntensityPP: {
+        value: 1.0,
+        min: 0.0,
+        max: 3.0,
+        step: 0.1,
+        label: "Rain Streaks",
+      },
+      dropletIntensityPP: {
+        value: 1.0,
+        min: 0.0,
+        max: 2.0,
+        step: 0.1,
+        label: "Droplet Refraction",
+      },
+      rainSpeedPP: {
+        value: 2.0,
+        min: 0.5,
+        max: 5.0,
+        step: 0.5,
+        label: "Rain Speed",
+      },
+    });
+
+  const { antiAliasingMode, smaaPreset } = useControls(
+    "✨ Anti-Aliasing (Map5)",
+    {
+      antiAliasingMode: {
+        value: "msaa",
+        options: {
+          "None (Jagged)": "none",
+          "MSAA (Default)": "msaa",
+          "SMAA (Shader-based)": "smaa",
+        },
+        label: "AA Mode",
+      },
+      smaaPreset: {
+        value: "high",
+        options: ["low", "medium", "high", "ultra"],
+        label: "SMAA Quality",
+        render: (get) =>
+          get("✨ Anti-Aliasing (Map5).antiAliasingMode") === "smaa",
+      },
+    }
+  );
+
+  // Map preset string to SMAAPreset enum
+  const smaaPresetMap = {
+    low: SMAAPreset.LOW,
+    medium: SMAAPreset.MEDIUM,
+    high: SMAAPreset.HIGH,
+    ultra: SMAAPreset.ULTRA,
+  };
+
+  // Determine multisampling setting
+  const multisampling =
+    antiAliasingMode === "smaa" ? 0 : antiAliasingMode === "msaa" ? 8 : 0;
+
+  // Only render post-processing if master toggle is enabled
+  if (!enablePostProcessing) {
+    return (
+      <>
+        {/* Sun mesh for GodRays origin (can still be enabled separately) */}
+        <Sun ref={sunRef} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {/* Sun mesh for GodRays origin */}
+      <Sun ref={sunRef} />
+
+      <Suspense fallback={null}>
+        <EffectComposer multisampling={multisampling}>
+          {/* N8AO - Advanced ambient occlusion (works with R3F!) */}
+          {enabled && (
+            <N8AO
+              aoRadius={aoRadius}
+              distanceFalloff={distanceFalloff}
+              intensity={intensity}
+              color={color}
+              aoSamples={aoSamples}
+              denoiseSamples={denoiseSamples}
+              denoiseRadius={denoiseRadius}
+              halfRes={halfRes}
+            />
+          )}
+
+          {/* GodRays - Temporarily disabled due to white screen issue */}
+          {/* TODO: Debug GodRays - possibly needs different setup */}
+          {false && godRaysEnabled && sunRef.current && (
+            <GodRays
+              sun={sunRef.current}
+              blendFunction={BlendFunction.ADD}
+              samples={samples}
+              density={density}
+              decay={decay}
+              weight={weight}
+              exposure={exposure}
+              clampMax={clampMax}
+              kernelSize={KernelSize.SMALL}
+              blur={blur}
+            />
+          )}
+
+          {/* Volumetric Fog - Raymarched screen-space fog (has its own toggle) */}
+          <VolumetricFog />
+
+          {/* Rain Effect with Refraction - Realistic water appearance */}
+          {enableRainPP && (
+            <RainEffectPostprocessing
+              rainIntensity={rainIntensityPP}
+              dropletIntensity={dropletIntensityPP}
+              rainSpeed={rainSpeedPP}
+            />
+          )}
+
+          {/* SMAA Anti-Aliasing - Shader-based AA */}
+          {antiAliasingMode === "smaa" && (
+            <SMAA preset={smaaPresetMap[smaaPreset]} />
+          )}
+        </EffectComposer>
+      </Suspense>
+    </>
+  );
+};
+
+export default SSAOEffect;
