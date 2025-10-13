@@ -32,6 +32,10 @@ import { ParkourCourseMap5 } from "./ParkourCourseMap5";
 import { DustParticles } from "./DustParticles";
 import { ButterflyParticles } from "./ButterflyParticles";
 import { RainParticles3D } from "./RainParticles3D";
+import { MovingShadowPlanes } from "./MovingShadowPlanes";
+import { DeerController } from "./DeerController";
+import { DeerHerd } from "./DeerHerd";
+import { JapaneseHouse } from "./JapaneseHouse";
 
 const maps = {
   "map1(intro)": {
@@ -244,6 +248,55 @@ export const Experience = () => {
     enableGroundScatter: {
       value: false,
       label: "🌿 Enable Ground Scatter",
+    },
+  });
+
+  const {
+    enableJapaneseHouse,
+    housePositionX,
+    housePositionY,
+    housePositionZ,
+    houseRotationY,
+    houseScale,
+  } = useControls("🏠 Japanese House (Map5)", {
+    enableJapaneseHouse: {
+      value: false,
+      label: "✨ Enable Japanese House",
+    },
+    housePositionX: {
+      value: -30,
+      min: -50,
+      max: 50,
+      step: 1,
+      label: "📍 Position X",
+    },
+    housePositionY: {
+      value: 0,
+      min: -5,
+      max: 5,
+      step: 0.5,
+      label: "📍 Position Y (Ground Level)",
+    },
+    housePositionZ: {
+      value: 30,
+      min: -50,
+      max: 50,
+      step: 1,
+      label: "📍 Position Z",
+    },
+    houseRotationY: {
+      value: 0,
+      min: -Math.PI,
+      max: Math.PI,
+      step: 0.1,
+      label: "🔄 Rotation Y",
+    },
+    houseScale: {
+      value: 1.0,
+      min: 0.5,
+      max: 5.0,
+      step: 0.1,
+      label: "📏 House Scale",
     },
   });
 
@@ -710,6 +763,25 @@ export const Experience = () => {
               )}
             {/* AO Test Objects for map5 - Shows where AO is most visible */}
             {map === "map5(copy)" && <AOTestObjects />}
+            {/* Moving Shadow Planes for map5 - Atmospheric moving shadows (cloud placeholders) */}
+            {map === "map5(copy)" && (
+              <MovingShadowPlanes
+                characterPosition={characterPositionVector.current}
+              />
+            )}
+            {/* Deer for map5 - Single deer OR herd of deer */}
+            {map === "map5(copy)" && <DeerController />}
+            {map === "map5(copy)" && <DeerHerd />}
+            {/* Japanese House for map5 - First building on the map */}
+            {map === "map5(copy)" && enableJapaneseHouse && (
+              <JapaneseHouse
+                position={[housePositionX, housePositionY, housePositionZ]}
+                rotation={[0, houseRotationY, 0]}
+                scale={houseScale}
+                castShadow
+                receiveShadow
+              />
+            )}
             {/* BVH Collider for map4 and map5 - builds collision mesh */}
             {(map === "map4(terrain+newcharacter)" || map === "map5(copy)") && (
               <BVHCollider onColliderReady={setBVHCollider} />

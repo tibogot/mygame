@@ -46,6 +46,7 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
   const bladesPerClusterRef = useRef<number>(1); // Blades per cluster setting
   const frameCountRef = useRef<number>(0); // Frame counter for debug logging
   const lastPlayerCellRef = useRef<{ x: number; z: number } | null>(null); // Track player grid position
+  const isRegeneratingRef = useRef<boolean>(false); // Prevent chunk creation during regeneration
   const { camera } = useThree();
 
   // Vertex shader with precision hints for better mobile performance
@@ -66,6 +67,12 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     uniform float mediumDetailDistance;
     uniform mat4 viewMatrixInverse;
     uniform bool enableViewThickening;
+    uniform float grassBaseLean;
+    uniform float bladeCurveAmount;
+    uniform bool enablePlayerInteraction;
+    uniform float playerInteractionRadius;
+    uniform float playerInteractionStrength;
+    uniform bool playerInteractionRepel; // true = repel (bend away), false = attract (bend toward)
     
     attribute vec3 offset;
     attribute float scale;
@@ -133,6 +140,56 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       return mat2(c, -s, s, c);
     }
     
+    // 3D rotation matrices (like Quick_Grass) - maintains blade length!
+    mat3 rotateX(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+      );
+    }
+    
+    mat3 rotateZ(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+      );
+    }
+    
+    mat3 rotateY(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+      );
+    }
+    
+    // Rotate around arbitrary axis (for wind) - like Quick_Grass!
+    // Manual outer product construction (outerProduct() not in GLSL ES 1.0)
+    mat3 rotateAxis(vec3 axis, float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      float oc = 1.0 - c;
+      
+      // Manually construct outer product: axis * axis^T * oc
+      float x = axis.x;
+      float y = axis.y;
+      float z = axis.z;
+      
+      return mat3(
+        x*x*oc + c,    x*y*oc - z*s,  x*z*oc + y*s,
+        x*y*oc + z*s,  y*y*oc + c,    y*z*oc - x*s,
+        x*z*oc - y*s,  y*z*oc + x*s,  z*z*oc + c
+      );
+    }
+    
     void main() {
       vUv = uv;
       vHeight = position.y + 0.5;
@@ -156,45 +213,83 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       // Apply instance scale with LOD
       vec3 pos = position * scale * lodScale;
       
-      // Apply instance rotation
+      // Apply instance rotation (Y-axis - around vertical)
       float cos_r = cos(rotation);
       float sin_r = sin(rotation);
       mat2 rotationMatrix = mat2(cos_r, -sin_r, sin_r, cos_r);
       pos.xz = rotationMatrix * pos.xz;
       
-      // Grass blade curve
-      float curve = pow(uv.y, 2.0) * 0.5;
-      pos.x += curve;
+      // Natural forward lean (ROTATION, not offset - maintains blade length!)
+      // Applied AFTER Y-rotation so clusters lean together in same world direction
+      // easeIn makes base straight, tip curves more (quadratic)
+      float easedHeight = uv.y * uv.y; // Same as easeIn(uv.y, 2.0)
+      float leanAngle = grassBaseLean * easedHeight; // Angle in radians
+      pos = rotateX(leanAngle) * pos; // Rotate around X-axis (pitch forward)
       
-      // Wind system - optimized
+      // Grass blade S-curve (ROTATION, not offset - maintains blade length!)
+      // Side-to-side curve for variety
+      float curveAngle = pow(uv.y, 2.0) * bladeCurveAmount;
+      pos = rotateZ(curveAngle) * pos; // Rotate around Z-axis (roll sideways)
+      
+      // Wind system - ROTATION-BASED (no stretching!) like Quick_Grass
       vec3 worldPos = pos + offset;
       
+      // Main wind direction and intensity
       float windDir = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.5);
       float windNoiseSample = noise12(worldPos.xz * windFrequency * 2.5 + time * windSpeed);
       float windLeanAngle = remap(windNoiseSample, -1.0, 1.0, 0.25, 1.0);
-      windLeanAngle = easeIn(windLeanAngle, 2.0) * 1.25 * windTurbulence * windAmplitude;
+      windLeanAngle = easeIn(windLeanAngle, 2.0) * 1.25 * windTurbulence * windAmplitude * windStrength; // NOW respects windStrength!
       vec3 windAxis = vec3(cos(windDir), 0.0, sin(windDir));
       
+      // Height factor - wind affects tips more than base
       float heightFactor = pow(uv.y, 1.5);
-      windLeanAngle *= heightFactor;
       
-      // Multi-layer wind
-      float wind1 = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.8) * windStrength * heightFactor * windInfluence * windAmplitude;
-      float wind2 = noise12(worldPos.xz * windFrequency * 2.0 + time * windSpeed * 1.2) * windStrength * heightFactor * windInfluence * windAmplitude * 0.6;
-      float wind3 = noise12(worldPos.xz * windFrequency * 0.5 + time * windSpeed * 0.3) * windStrength * heightFactor * windInfluence * windAmplitude * 0.4;
+      // Multi-layer wind angles (not offsets!)
+      float wind1 = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.8) * windStrength * windInfluence * windAmplitude * 0.3;
+      float wind2 = noise12(worldPos.xz * windFrequency * 2.0 + time * windSpeed * 1.2) * windStrength * windInfluence * windAmplitude * 0.18;
+      float wind3 = noise12(worldPos.xz * windFrequency * 0.5 + time * windSpeed * 0.3) * windStrength * windInfluence * windAmplitude * 0.12;
       
-      float flapping = sin(time * windSpeed * 2.0 + worldPos.x * windFrequency + worldPos.z * windFrequency) * windStrength * heightFactor * windInfluence * windAmplitude * 0.4 * flappingIntensity;
+      // Flapping (high-frequency oscillation)
+      float flapping = sin(time * windSpeed * 2.0 + worldPos.x * windFrequency + worldPos.z * windFrequency) * windStrength * windInfluence * windAmplitude * 0.12 * flappingIntensity;
       
-      float totalWind = (wind1 + wind2 + wind3 + flapping) * windTurbulence;
+      // Total wind lean angle (scaled by height)
+      float totalWindAngle = (wind1 + wind2 + wind3 + flapping) * windTurbulence * heightFactor;
+      windLeanAngle = windLeanAngle * heightFactor + totalWindAngle;
       
-      pos.x += totalWind * windAxis.x;
-      pos.z += totalWind * windAxis.z;
+      // Apply wind as ROTATION (no stretching!)
+      pos = rotateAxis(windAxis, windLeanAngle) * pos;
       
-      float windRotation = noise12(worldPos.xz * windFrequency * 1.5 + time * windSpeed * 0.6) * windStrength * heightFactor * windInfluence * windAmplitude * 0.15 * windTurbulence;
-      pos.xz = rotate2D(windRotation) * pos.xz;
+      // Small twist rotation for variety
+      float windTwist = noise12(worldPos.xz * windFrequency * 1.5 + time * windSpeed * 0.6) * windStrength * heightFactor * windInfluence * windAmplitude * 0.1 * windTurbulence;
+      pos = rotateY(windTwist) * pos;
       
-      float verticalSway = sin(time * windSpeed * 1.5 + worldPos.x * windFrequency * 0.8 + worldPos.z * windFrequency * 0.8) * windStrength * heightFactor * windInfluence * windAmplitude * 0.2;
-      pos.y += verticalSway;
+      // PLAYER INTERACTION - Grass bends away from OR toward player!
+      if (enablePlayerInteraction) {
+        vec3 grassBladePos = worldPos;  // Current blade position in world space
+        float distToPlayer = distance(grassBladePos.xz, playerPosition.xz);
+        
+        // Smooth falloff: full effect at playerInteractionRadius, fades to 0 outside
+        float playerFalloff = smoothstep(playerInteractionRadius, playerInteractionRadius * 0.4, distToPlayer);
+        
+        if (playerFalloff > 0.01) {
+          // Direction calculation (like Quick_Grass)
+          vec3 grassToPlayer = normalize(vec3(playerPosition.x, 0.0, playerPosition.z) - vec3(grassBladePos.x, 0.0, grassBladePos.z));
+          
+          // Create perpendicular axis (90° rotated) - grass leans sideways
+          vec3 playerLeanAxis = vec3(grassToPlayer.z, 0.0, -grassToPlayer.x);
+          
+          // Lean angle increases with proximity and height
+          float playerLeanAngle = playerFalloff * playerInteractionStrength * heightFactor;
+          
+          // REPEL (bend away) or ATTRACT (bend toward)
+          if (!playerInteractionRepel) {
+            playerLeanAngle = -playerLeanAngle;  // Negate = attract instead of repel
+          }
+          
+          // Apply rotation - grass bends! 🏃🌿
+          pos = rotateAxis(playerLeanAxis, playerLeanAngle) * pos;
+        }
+      }
       
       pos += offset;
       
@@ -231,10 +326,11 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       float viewDotNormal = saturate(dot(grassFaceNormalXZ, viewDirXZ));
       float viewSpaceThickenFactor = easeOut(1.0 - viewDotNormal, 4.0) * smoothstep(0.0, 0.2, viewDotNormal);
       
-      // CRITICAL: Modulate thickening by height - ONLY bottom 40% of blade!
-      // Use aggressive quartic curve to ensure sharp tips
-      float heightTaper = pow(1.0 - vHeight, 5.0); // Base = 1.0, 50% height = 0.03, Tip = 0.0
-      viewSpaceThickenFactor *= heightTaper;
+      // CRITICAL: NO thickening at tip to preserve triangular point!
+      // Completely disable thickening in the last 5% where triangle point forms
+      float heightTaper = pow(1.0 - vHeight, 5.0); // Quintic taper
+      float tipProtection = 1.0 - smoothstep(0.93, 0.98, vHeight); // Zero thickening at tip!
+      viewSpaceThickenFactor *= heightTaper * tipProtection;
       
       // Determine which side of the blade (left=-1, right=1) based on UV.x
       float xSide = uv.x; // 0 = left, 1 = right
@@ -280,7 +376,9 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     uniform mediump float moonIntensity;
     uniform vec3 moonDirection;
     uniform vec3 moonColor;
+    uniform vec3 sunDirection;
     uniform bool disableTextureTint;
+    uniform mediump float edgeDarkeningStrength;
     uniform mediump float sssIntensity;
     uniform mediump float sssPower;
     uniform mediump float sssScale;
@@ -298,6 +396,21 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     uniform mediump float anisotropyTangent;
     uniform mediump float anisotropyBitangent;
     uniform bool enableAnisotropy;
+    
+    // Quick_Grass-style atmospheric fog
+    uniform bool enableDistanceFog;
+    uniform mediump float fogScatterDensity;
+    uniform mediump float fogExtinctionDensity;
+    uniform vec3 fogSkyColor;
+    
+    // Wrapped lighting for softer, more natural shading
+    uniform bool enableWrappedLighting;
+    uniform mediump float wrapAmount;
+    
+    // Player interaction - grass bends away from player!
+    uniform bool enablePlayerInteraction;
+    uniform mediump float playerInteractionRadius;
+    uniform mediump float playerInteractionStrength;
     
     varying vec2 vUv;
     varying vec3 vNormal;
@@ -325,6 +438,33 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     float getAmbientOcclusion() {
       float ao = 1.0 - (grassDensity * 0.2) - (1.0 - vHeight) * 0.3;
       return mix(1.0, ao, aoIntensity);
+    }
+    
+    // Quick_Grass-style atmospheric fog with scattering + extinction
+    vec3 calculateDistanceFog(vec3 baseColor, vec3 viewDir, float sceneDepth) {
+      // Use envMap to sample sky color in view direction (or fallback to uniform)
+      vec3 skyColor = fogSkyColor;
+      
+      if (enableEnvMap) {
+        // Sample sky from environment map in the direction we're looking
+        vec2 skyUV = vec2(
+          0.5 + atan(viewDir.z, viewDir.x) / (2.0 * 3.14159265),
+          0.5 - asin(viewDir.y) / 3.14159265
+        );
+        skyColor = texture2D(envMap, skyUV).rgb * 0.7 + fogSkyColor * 0.3; // Blend with uniform
+      }
+      
+      // Distance-based fog (Quick_Grass method)
+      float fogDepth = sceneDepth * sceneDepth;
+      
+      // Scattering: how much light spreads in the fog
+      float fogScatter = exp(-fogScatterDensity * fogScatterDensity * fogDepth);
+      
+      // Extinction: how much fog blocks the object
+      float fogExtinction = exp(-fogExtinctionDensity * fogExtinctionDensity * fogDepth);
+      
+      // Physically-based blend: object darkens + sky color appears
+      return baseColor * fogExtinction + skyColor * (1.0 - fogScatter);
     }
     
     void main() {
@@ -364,33 +504,121 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       }
       
       if (!disableTextureTint) {
-        color *= texColor.rgb;
+        // Extract LUMINANCE (brightness) from texture, NOT color!
+        // This gives edge darkening without blue tint
+        float edgeDarkening = dot(texColor.rgb, vec3(0.299, 0.587, 0.114)); // RGB to luminance
+        
+        // Blend between original color (1.0) and darkened version
+        // This allows controlling the edge darkening strength!
+        color *= mix(1.0, edgeDarkening, edgeDarkeningStrength);
       }
       
-      // Environment reflections
+      // Calculate roughness (used by both envMap and specular)
+      float roughness = mix(roughnessBase, roughnessTip, vHeight) * roughnessIntensity;
+      
+      // ========== IMAGE-BASED LIGHTING (IBL) + SKY REFLECTIONS ==========
+      // AAA-Quality environmental lighting (like Zelda BOTW, Genshin Impact)
+      // 
+      // TWO COMPONENTS:
+      // 1. IBL Ambient: Sky provides ambient light (replaces flat ambient)
+      //    - Grass in shadow gets realistic sky lighting
+      //    - Changes with time of day / environment
+      //    - Heavily blurred for diffuse look
+      // 
+      // 2. Sky Reflections on Tips: Subtle atmospheric effect
+      //    - Only blade tips catch sky color (like dewy grass)
+      //    - Controlled by roughness (wet = more, dry = less)
+      //    - Controlled by fresnel (grazing angles = more)
+      //    - Height-masked (base = none, tips = full)
+      //    - NOT mirror-like, just atmospheric!
+      //
+      // Result: Natural grass that "fits" the environment! 🌿✨
       if (enableEnvMap) {
-        float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0), fresnelPower);
+        // 1. IBL AMBIENT LIGHTING - Sky provides ambient light
+        // Sample sky from "up" direction (world space normal pointing up)
+        vec3 worldNormal = normalize(vNormal);
+        vec2 skyUV;
+        skyUV.x = atan(worldNormal.z, worldNormal.x) / 6.28318530718 + 0.5;
+        skyUV.y = asin(clamp(worldNormal.y, -1.0, 1.0)) / 3.14159265359 + 0.5;
+        
+        // Blurred sky sample for diffuse ambient (replaces flat ambient)
+        vec3 skyAmbient = texture2D(envMap, skyUV).rgb;
+        vec3 blur = vec3(0.0);
+        float blurRadius = 0.15; // Heavy blur for diffuse
+        blur += texture2D(envMap, skyUV + vec2(blurRadius, 0.0)).rgb;
+        blur += texture2D(envMap, skyUV + vec2(-blurRadius, 0.0)).rgb;
+        blur += texture2D(envMap, skyUV + vec2(0.0, blurRadius)).rgb;
+        blur += texture2D(envMap, skyUV + vec2(0.0, -blurRadius)).rgb;
+        skyAmbient = (skyAmbient + blur) / 5.0;
+        
+        // Apply IBL ambient (this replaces/enhances flat ambient lighting)
+        // Grass in shadow gets sky light naturally!
+        color += skyAmbient * 0.25 * envMapIntensity; // 25% ambient contribution
+        
+        // 2. SKY REFLECTIONS ON TIPS - Subtle atmospheric effect
+        // Only blade tips catch sky color (like dewy grass)
         vec3 r = normalize(vReflect);
         vec2 reflectUV;
         reflectUV.x = atan(r.z, r.x) / 6.28318530718 + 0.5;
-        reflectUV.y = asin(r.y) / 3.14159265359 + 0.5;
-        vec3 envColor = texture2D(envMap, reflectUV).rgb;
-        float reflectionStrength = mix(0.15, 0.85, vHeight) * fresnel * envMapIntensity;
-        color += envColor * reflectionStrength;
+        reflectUV.y = asin(clamp(r.y, -1.0, 1.0)) / 3.14159265359 + 0.5;
+        
+        // Roughness-based blur for natural look (not mirror)
+        // Low roughness (wet) = sharp reflection, High roughness (dry) = blurred
+        vec3 skyReflection = texture2D(envMap, reflectUV).rgb;
+        blur = vec3(0.0);
+        float reflectBlur = roughness * 0.15; // Stronger blur effect based on roughness
+        blur += texture2D(envMap, reflectUV + vec2(reflectBlur, 0.0)).rgb;
+        blur += texture2D(envMap, reflectUV + vec2(-reflectBlur, 0.0)).rgb;
+        blur += texture2D(envMap, reflectUV + vec2(0.0, reflectBlur)).rgb;
+        blur += texture2D(envMap, reflectUV + vec2(0.0, -reflectBlur)).rgb;
+        
+        // Blend based on roughness: low roughness = less blur, high roughness = more blur
+        float blurMix = smoothstep(0.0, 0.5, roughness); // Gradual transition
+        skyReflection = mix(skyReflection, blur / 4.0, blurMix);
+        
+        // Height masking - ONLY tips get sky reflections
+        float tipReflectionMask = smoothstep(0.6, 0.95, vHeight); // Top 35% of blade
+        
+        // Fresnel effect - more reflection at grazing angles (uses fresnelPower uniform!)
+        vec3 viewDir = normalize(-vViewPosition);
+        vec3 normal = normalize(vNormal);
+        float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), fresnelPower);
+        
+        // Roughness control - wet grass (low roughness) = more sky reflection
+        // Stronger effect for visibility!
+        float reflectionStrength = pow(1.0 - roughness, 2.0) * fresnel * tipReflectionMask;
+        
+        // Apply sky reflections to tips (increased from 0.15 to 0.25 for visibility)
+        color += skyReflection * reflectionStrength * 0.25 * envMapIntensity;
       }
       
       // Lighting
       if (!disableLighting) {
-        vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
+        vec3 lightDir = normalize(sunDirection);
         vec3 normal = normalize(vNormal);
-        float NdotL = max(dot(normal, lightDir), 0.0);
+        
+        // Wrapped lighting (Quick_Grass style) - softer, more natural for thin objects
+        float NdotL;
+        if (enableWrappedLighting) {
+          // Light wraps around thin objects like grass blades
+          NdotL = saturate((dot(normal, lightDir) + wrapAmount) / (1.0 + wrapAmount));
+        } else {
+          // Standard Lambert lighting
+          NdotL = max(dot(normal, lightDir), 0.0);
+        }
+        
         float depthVariation = 0.4 + 0.6 * vHeight;
         
         vec3 viewDir = normalize(-vViewPosition);
         float rim = pow(1.0 - max(dot(normal, viewDir), 0.0), 1.5);
         
-        // Specular
+        // Specular highlights - SUN GLINTS on grass tips!
         vec3 specular = vec3(0.0);
+        
+        // Height-based masking - only TIPS get sun glints (like real grass!)
+        // Bottom of blades are hidden in dense grass, don't catch light
+        float tipMask = smoothstep(0.3, 0.8, vHeight); // Only top 50% of blade
+        
         if (enableAnisotropy) {
           vec3 H = normalize(lightDir + viewDir);
           float TdotH = dot(normalize(vTangent), H);
@@ -411,21 +639,25 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
           float F = pow(1.0 - VdotH, fresnelPower);
           
           float anisoSpec = D * F * anisotropyStrength;
-          specular = specularColor * anisoSpec * specularIntensity * 8.0;
+          // Sun highlights using specularColor from Leva, modulated by tip mask
+          specular = specularColor * anisoSpec * specularIntensity * 8.0 * tipMask;
         } else {
           vec3 reflectDir = reflect(-lightDir, normal);
           float spec = pow(max(dot(viewDir, reflectDir), 0.0), specularPower);
-          float roughness = mix(roughnessBase, roughnessTip, vHeight) * roughnessIntensity;
+          // Use roughness calculated earlier
           spec *= (1.0 - roughness * 0.8);
-          specular = specularColor * spec * specularIntensity;
+          // Sun highlights using specularColor from Leva, modulated by tip mask
+          // Boosted 3x to match moon visibility
+          specular = specularColor * spec * specularIntensity * 3.0 * tipMask;
         }
         
-        // Moon reflection
+        // Moon highlights (uses moonColor from Leva, on tips only)
         if (!disableMoonReflection) {
           vec3 moonDir = normalize(moonDirection);
           vec3 moonReflectDir = reflect(-moonDir, normal);
           float moonSpec = pow(max(dot(viewDir, moonReflectDir), 0.0), specularPower * 0.8);
-          specular += moonColor * moonSpec * specularIntensity * moonIntensity * 3.0;
+          // Moon uses your configured color (red, white, whatever you set!)
+          specular += moonColor * moonSpec * specularIntensity * moonIntensity * 3.0 * tipMask;
         }
         
         // SSS
@@ -451,6 +683,13 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
         color *= getAmbientOcclusion();
       }
       
+      // Distance fog (Quick_Grass-style) - applied last for realism
+      if (enableDistanceFog) {
+        float sceneDepth = length(vViewPosition);
+        vec3 viewDir = normalize(vViewPosition);
+        color = calculateDistanceFog(color, viewDir, sceneDepth);
+      }
+      
       gl_FragColor = vec4(color, texColor.a);
     }
   `;
@@ -473,6 +712,12 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     uniform float mediumDetailDistance;
     uniform mat4 viewMatrixInverse;
     uniform bool enableViewThickening;
+    uniform float grassBaseLean;
+    uniform float bladeCurveAmount;
+    uniform bool enablePlayerInteraction;
+    uniform float playerInteractionRadius;
+    uniform float playerInteractionStrength;
+    uniform bool playerInteractionRepel; // true = repel (bend away), false = attract (bend toward) - SAME as main
     
     attribute vec3 offset;
     attribute float scale;
@@ -524,6 +769,56 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       return mat2(c, -s, s, c);
     }
     
+    // 3D rotation matrices (SAME as main shader) - maintains blade length!
+    mat3 rotateX(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+      );
+    }
+    
+    mat3 rotateZ(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+      );
+    }
+    
+    mat3 rotateY(float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat3(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+      );
+    }
+    
+    // Rotate around arbitrary axis (for wind) - SAME as main shader!
+    // Manual outer product construction (outerProduct() not in GLSL ES 1.0)
+    mat3 rotateAxis(vec3 axis, float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      float oc = 1.0 - c;
+      
+      // Manually construct outer product: axis * axis^T * oc
+      float x = axis.x;
+      float y = axis.y;
+      float z = axis.z;
+      
+      return mat3(
+        x*x*oc + c,    x*y*oc - z*s,  x*z*oc + y*s,
+        x*y*oc + z*s,  y*y*oc + c,    y*z*oc - x*s,
+        x*z*oc - y*s,  y*z*oc + x*s,  z*z*oc + c
+      );
+    }
+    
     void main() {
       vUv = uv; // Pass UV for texture sampling in fragment shader
       
@@ -540,15 +835,20 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       // Apply instance scale with LOD (SAME as main shader)
       vec3 pos = position * scale * lodScale;
       
-      // Apply instance rotation (SAME as main shader)
+      // Apply instance rotation (Y-axis - SAME as main shader)
       float cos_r = cos(rotation);
       float sin_r = sin(rotation);
       mat2 rotationMatrix = mat2(cos_r, -sin_r, sin_r, cos_r);
       pos.xz = rotationMatrix * pos.xz;
       
-      // Grass blade curve (SAME as main shader)
-      float curve = pow(uv.y, 2.0) * 0.5;
-      pos.x += curve;
+      // Natural forward lean (ROTATION - SAME as main shader - maintains blade length!)
+      float easedHeight = uv.y * uv.y;
+      float leanAngle = grassBaseLean * easedHeight;
+      pos = rotateX(leanAngle) * pos; // Rotate around X-axis (pitch forward)
+      
+      // Grass blade S-curve (ROTATION - SAME as main shader - maintains blade length!)
+      float curveAngle = pow(uv.y, 2.0) * bladeCurveAmount;
+      pos = rotateZ(curveAngle) * pos; // Rotate around Z-axis (roll sideways)
       
       // Wind system - SAME transformations as main shader
       vec3 worldPos = pos + offset;
@@ -556,29 +856,49 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       float windDir = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.5);
       float windNoiseSample = noise12(worldPos.xz * windFrequency * 2.5 + time * windSpeed);
       float windLeanAngle = remap(windNoiseSample, -1.0, 1.0, 0.25, 1.0);
-      windLeanAngle = easeIn(windLeanAngle, 2.0) * 1.25 * windTurbulence * windAmplitude;
+      windLeanAngle = easeIn(windLeanAngle, 2.0) * 1.25 * windTurbulence * windAmplitude * windStrength; // NOW respects windStrength (SAME as main)
       vec3 windAxis = vec3(cos(windDir), 0.0, sin(windDir));
       
+      // Height factor - wind affects tips more than base
       float heightFactor = pow(uv.y, 1.5);
-      windLeanAngle *= heightFactor;
       
-      // Multi-layer wind (SAME as main shader)
-      float wind1 = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.8) * windStrength * heightFactor * windInfluence * windAmplitude;
-      float wind2 = noise12(worldPos.xz * windFrequency * 2.0 + time * windSpeed * 1.2) * windStrength * heightFactor * windInfluence * windAmplitude * 0.6;
-      float wind3 = noise12(worldPos.xz * windFrequency * 0.5 + time * windSpeed * 0.3) * windStrength * heightFactor * windInfluence * windAmplitude * 0.4;
+      // Multi-layer wind angles (not offsets!)
+      float wind1 = noise12(worldPos.xz * windFrequency + time * windSpeed * 0.8) * windStrength * windInfluence * windAmplitude * 0.3;
+      float wind2 = noise12(worldPos.xz * windFrequency * 2.0 + time * windSpeed * 1.2) * windStrength * windInfluence * windAmplitude * 0.18;
+      float wind3 = noise12(worldPos.xz * windFrequency * 0.5 + time * windSpeed * 0.3) * windStrength * windInfluence * windAmplitude * 0.12;
       
-      float flapping = sin(time * windSpeed * 2.0 + worldPos.x * windFrequency + worldPos.z * windFrequency) * windStrength * heightFactor * windInfluence * windAmplitude * 0.4 * flappingIntensity;
+      // Flapping (high-frequency oscillation)
+      float flapping = sin(time * windSpeed * 2.0 + worldPos.x * windFrequency + worldPos.z * windFrequency) * windStrength * windInfluence * windAmplitude * 0.12 * flappingIntensity;
       
-      float totalWind = (wind1 + wind2 + wind3 + flapping) * windTurbulence;
+      // Total wind lean angle (scaled by height)
+      float totalWindAngle = (wind1 + wind2 + wind3 + flapping) * windTurbulence * heightFactor;
+      windLeanAngle = windLeanAngle * heightFactor + totalWindAngle;
       
-      pos.x += totalWind * windAxis.x;
-      pos.z += totalWind * windAxis.z;
+      // Apply wind as ROTATION (no stretching!)
+      pos = rotateAxis(windAxis, windLeanAngle) * pos;
       
-      float windRotation = noise12(worldPos.xz * windFrequency * 1.5 + time * windSpeed * 0.6) * windStrength * heightFactor * windInfluence * windAmplitude * 0.15 * windTurbulence;
-      pos.xz = rotate2D(windRotation) * pos.xz;
+      // Small twist rotation for variety
+      float windTwist = noise12(worldPos.xz * windFrequency * 1.5 + time * windSpeed * 0.6) * windStrength * heightFactor * windInfluence * windAmplitude * 0.1 * windTurbulence;
+      pos = rotateY(windTwist) * pos;
       
-      float verticalSway = sin(time * windSpeed * 1.5 + worldPos.x * windFrequency * 0.8 + worldPos.z * windFrequency * 0.8) * windStrength * heightFactor * windInfluence * windAmplitude * 0.2;
-      pos.y += verticalSway;
+      // PLAYER INTERACTION - SAME as main shader (shadows must match!)
+      if (enablePlayerInteraction) {
+        vec3 grassBladePos = worldPos;
+        float distToPlayer = distance(grassBladePos.xz, playerPosition.xz);
+        float playerFalloff = smoothstep(playerInteractionRadius, playerInteractionRadius * 0.4, distToPlayer);
+        
+        if (playerFalloff > 0.01) {
+          vec3 grassToPlayer = normalize(vec3(playerPosition.x, 0.0, playerPosition.z) - vec3(grassBladePos.x, 0.0, grassBladePos.z));
+          vec3 playerLeanAxis = vec3(grassToPlayer.z, 0.0, -grassToPlayer.x);
+          float playerLeanAngle = playerFalloff * playerInteractionStrength * heightFactor;
+          
+          if (!playerInteractionRepel) {
+            playerLeanAngle = -playerLeanAngle;  // Attract mode
+          }
+          
+          pos = rotateAxis(playerLeanAxis, playerLeanAngle) * pos;
+        }
+      }
       
       pos += offset;
       
@@ -592,10 +912,11 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       float viewDotNormal = saturate(dot(grassFaceNormalXZ, viewDirXZ));
       float viewSpaceThickenFactor = easeOut(1.0 - viewDotNormal, 4.0) * smoothstep(0.0, 0.2, viewDotNormal);
       
-      // CRITICAL: Modulate by height - base thick, tip thin (SAME as main shader)
+      // CRITICAL: NO thickening at tip to preserve triangular point! (SAME as main shader)
       float height = uv.y; // 0 = base, 1 = tip
-      float heightTaper = pow(1.0 - height, 5.0); // Aggressive taper (SAME as main shader)
-      viewSpaceThickenFactor *= heightTaper;
+      float heightTaper = pow(1.0 - height, 5.0); // Quintic taper
+      float tipProtection = 1.0 - smoothstep(0.93, 0.98, height); // Zero thickening at tip!
+      viewSpaceThickenFactor *= heightTaper * tipProtection;
       
       float xSide = uv.x;
       
@@ -673,6 +994,7 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     moonDirectionZ,
     moonColor,
     disableTextureTint,
+    edgeDarkeningStrength,
     textureRepeatX,
     textureRepeatY,
     sssIntensity,
@@ -695,8 +1017,19 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     fresnelPower,
     roughnessIntensity,
     environmentType,
+    enableDistanceFog,
+    fogScatterDensity,
+    fogExtinctionDensity,
+    fogSkyColor,
+    enableWrappedLighting,
+    wrapAmount,
+    enablePlayerInteraction,
+    playerInteractionRadius,
+    playerInteractionStrength,
+    playerInteractionRepel,
     grassBaseWidth,
     grassTipWidth,
+    grassBaseLean,
     enableAnisotropy,
     anisotropyStrength,
     anisotropyTangent,
@@ -705,9 +1038,15 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     enableViewThickening,
     enableWind,
     bladesPerCluster,
+    sunDirectionX,
+    sunDirectionY,
+    sunDirectionZ,
+    bladeCurveAmount,
+    widthTaperPower,
+    tipPointPercent,
   } = useControls("SimonDev Grass 11 (Custom Shadows)", {
     grassCount: {
-      value: 50000,
+      value: 10000,
       min: 1000,
       max: 300000,
       step: 1000,
@@ -721,7 +1060,7 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       label: "🌿 Blades Per Cluster (1=Single, 3=Clump)",
     },
     enableDynamicChunks: {
-      value: true,
+      value: false,
       label: "📦 Enable Dynamic Chunks (Disable for Static Testing)",
     },
     chunkSize: {
@@ -759,12 +1098,48 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       label: "Medium Quality Radius",
     },
     disableLighting: { value: false },
-    specularIntensity: { value: 1.5, min: 0, max: 3, step: 0.1 },
-    specularColor: { value: "#4a7c59" },
-    specularPower: { value: 32, min: 8, max: 128, step: 8 },
+    specularIntensity: {
+      value: 1.2,
+      min: 0,
+      max: 5,
+      step: 0.1,
+      label: "✨ Specular Intensity (Both Sun & Moon Glints)",
+    },
+    specularColor: {
+      value: "#ffffff",
+      label: "☀️ Sun Glint Color (Change to Debug/Test)",
+    },
+    specularPower: {
+      value: 96,
+      min: 8,
+      max: 256,
+      step: 8,
+      label: "Specular Sharpness (Higher = Tighter Highlights)",
+    },
+    sunDirectionX: {
+      value: 15.0,
+      min: -50.0,
+      max: 50.0,
+      step: 1.0,
+      label: "☀️ Sun Direction X",
+    },
+    sunDirectionY: {
+      value: 25.0,
+      min: 5.0,
+      max: 50.0,
+      step: 1.0,
+      label: "☀️ Sun Direction Y (Height)",
+    },
+    sunDirectionZ: {
+      value: 10.0,
+      min: -50.0,
+      max: 50.0,
+      step: 1.0,
+      label: "☀️ Sun Direction Z",
+    },
     enableViewThickening: {
       value: true,
-      label: "👁️ Enable View-Space Thickening (Fuller From All Angles)",
+      label: "👁️ View-Space Thickening (Fuller, Tip-Protected ✅)",
     },
     enableWind: {
       value: false,
@@ -791,13 +1166,35 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       step: 0.05,
       label: "🌑 Shadow Alpha Cutoff (Higher = Sharper Shadows)",
     },
-    disableMoonReflection: { value: true },
-    moonIntensity: { value: 2.0, min: 0.0, max: 5.0, step: 0.1 },
+    disableMoonReflection: {
+      value: true,
+      label: "🌙 Disable Moon Light (2nd Specular Source)",
+    },
+    moonIntensity: {
+      value: 1.0,
+      min: 0.0,
+      max: 5.0,
+      step: 0.1,
+      label: "🌙 Moon Intensity (Multiplier for Moon Only)",
+    },
     moonDirectionX: { value: -15.0, min: -50.0, max: 50.0, step: 5.0 },
     moonDirectionY: { value: 25.0, min: 10.0, max: 50.0, step: 5.0 },
     moonDirectionZ: { value: 10.0, min: -50.0, max: 50.0, step: 5.0 },
-    moonColor: { value: "#ff0000" },
-    disableTextureTint: { value: true },
+    moonColor: {
+      value: "#ff0000",
+      label: "🌙 Moon Highlight Color (Try Red/Blue/White)",
+    },
+    disableTextureTint: {
+      value: true,
+      label: "🚫 Disable Edge Darkening (Texture Gradient)",
+    },
+    edgeDarkeningStrength: {
+      value: 0.3,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "🎚️ Edge Darkening Strength (0=Off, 0.3=Subtle, 1=Full)",
+    },
     textureRepeatX: { value: 1.0, min: 0.1, max: 5.0, step: 0.1 },
     textureRepeatY: { value: 1.0, min: 0.1, max: 5.0, step: 0.1 },
     sssIntensity: { value: 0.8, min: 0.0, max: 3.0, step: 0.1 },
@@ -813,18 +1210,147 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     enableColorVariation: { value: false },
     colorVariationIntensity: { value: 1.0, min: 0.0, max: 2.0, step: 0.1 },
     tipColorVariationIntensity: { value: 1.0, min: 0.0, max: 2.0, step: 0.1 },
-    enableEnvMap: { value: false },
-    envMapIntensity: { value: 1.0, min: 0.0, max: 3.0, step: 0.1 },
-    roughnessBase: { value: 0.9, min: 0.0, max: 1.0, step: 0.05 },
-    roughnessTip: { value: 0.1, min: 0.0, max: 1.0, step: 0.05 },
-    fresnelPower: { value: 3.0, min: 1.0, max: 10.0, step: 0.5 },
-    roughnessIntensity: { value: 1.0, min: 0.0, max: 2.0, step: 0.1 },
+    enableEnvMap: {
+      value: false,
+      label: "🌍 Enable IBL + Sky Reflections (Recommended!)",
+    },
+    envMapIntensity: {
+      value: 1.0,
+      min: 0.0,
+      max: 3.0,
+      step: 0.1,
+      label: "🌍 IBL Strength (Sky Ambient + Tip Reflections)",
+    },
+    roughnessBase: {
+      value: 0.15,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "💎 Roughness Base (0=Wet/Shiny, 1=Dry/Matte)",
+    },
+    roughnessTip: {
+      value: 0.02,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+      label: "✨ Roughness Tip (Lower = More Sky Reflection)",
+    },
+    fresnelPower: {
+      value: 3.0,
+      min: 1.0,
+      max: 10.0,
+      step: 0.5,
+      label: "💎 Fresnel Power (Sky Reflection at Edges)",
+    },
+    roughnessIntensity: {
+      value: 1.0,
+      min: 0.0,
+      max: 2.0,
+      step: 0.1,
+      label: "🎚️ Roughness Multiplier (Global Roughness Scale)",
+    },
     environmentType: {
       value: "industrial_sunset",
       options: ["industrial_sunset", "kloofendal", "qwantani"],
+      label: "🌅 Environment HDR (Controls Sky Color/Ambient)",
     },
-    grassBaseWidth: { value: 2.0, min: 1.0, max: 6.0, step: 0.1 },
-    grassTipWidth: { value: 0.2, min: 0.05, max: 1.0, step: 0.05 },
+    enableDistanceFog: {
+      value: false,
+      label: "🌫️ Enable Distance Fog (Quick_Grass Style)",
+    },
+    fogScatterDensity: {
+      value: 0.001,
+      min: 0.0,
+      max: 0.01,
+      step: 0.0001,
+      label: "💨 Fog Scatter Density (Light Spread) - Higher = More Fog",
+    },
+    fogExtinctionDensity: {
+      value: 0.005,
+      min: 0.0,
+      max: 0.02,
+      step: 0.0001,
+      label: "🌫️ Fog Extinction Density (Object Darkening) - Higher = Darker",
+    },
+    fogSkyColor: {
+      value: "#c8d5e8",
+      label: "☁️ Fog Sky Color (Fallback if EnvMap Off)",
+    },
+    enableWrappedLighting: {
+      value: true,
+      label: "💡 Enable Wrapped Lighting (Softer, Fuller Grass)",
+    },
+    wrapAmount: {
+      value: 0.5,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "🌀 Wrap Amount (0.5=Balanced, Higher=Softer)",
+    },
+    enablePlayerInteraction: {
+      value: true,
+      label: "🏃 Enable Player Interaction (Grass Bends When You Walk!)",
+    },
+    playerInteractionRadius: {
+      value: 2.5,
+      min: 0.5,
+      max: 10.0,
+      step: 0.5,
+      label: "📍 Player Interaction Radius (Distance Grass Bends)",
+    },
+    playerInteractionStrength: {
+      value: 0.3,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "💪 Player Interaction Strength (How Much Grass Bends)",
+    },
+    playerInteractionRepel: {
+      value: true,
+      label: "🔄 Repel Mode (ON=Bend Away, OFF=Attract/Magnet)",
+    },
+    grassBaseWidth: {
+      value: 0.15,
+      min: 0.05,
+      max: 0.5,
+      step: 0.01,
+      label: "🌾 Grass Base Width (0.15=Natural, 0.3=Thick)",
+    },
+    grassTipWidth: {
+      value: 0.06,
+      min: 0.02,
+      max: 0.3,
+      step: 0.01,
+      label: "🌾 Grass Tip Width (0.03=Sharp, 0.06=Natural, 0.12=Rounded)",
+    },
+    grassBaseLean: {
+      value: 0.0,
+      min: 0.0,
+      max: 0.6,
+      step: 0.05,
+      label: "🌿 Forward Lean (0=Straight, 0.2=Natural, 0.4=Heavy)",
+    },
+    bladeCurveAmount: {
+      value: 0.0,
+      min: 0.0,
+      max: 0.8,
+      step: 0.05,
+      label: "🌊 Blade S-Curve (0=Straight, 0.2=Natural, 0.5=Curved)",
+    },
+    widthTaperPower: {
+      value: 2.0,
+      min: 1.0,
+      max: 4.0,
+      step: 0.5,
+      label: "📏 Width Taper Curve (1=Linear, 2=Natural, 3-4=Stay Wide)",
+    },
+    tipPointPercent: {
+      value: 0.05,
+      min: 0.01,
+      max: 0.3,
+      step: 0.01,
+      label: "▲ Tip Point Length (0.03=Sharp, 0.05=Natural, 0.1=Long)",
+    },
     enableAnisotropy: { value: false },
     anisotropyStrength: { value: 0.8, min: 0.0, max: 2.0, step: 0.1 },
     anisotropyTangent: { value: 3.0, min: 0.1, max: 8.0, step: 0.1 },
@@ -836,8 +1362,10 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
     console.log("🔨 Creating LOD geometries (cached)...");
 
     const createGrassGeometry = (segments: number, name: string) => {
+      // Start with width=1.0 as a BASE, then we'll apply absolute widths
+      // (Not 0.08 which is too small and causes multiplication issues!)
       const geom = new THREE.PlaneGeometry(
-        0.08,
+        1.0, // Unit width - we'll apply actual width in taper loop
         1.2 * grassHeight * grassHeightMultiplier,
         1,
         segments
@@ -845,26 +1373,89 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
 
       const vertices = geom.attributes.position.array as Float32Array;
 
-      for (let i = 0; i < vertices.length; i += 3) {
-        const y = vertices[i + 1];
-        const normalizedY = y + 0.5;
-        const baseWidth = grassBaseWidth;
-        const tipWidth = grassTipWidth;
-        const taper = baseWidth - (baseWidth - tipWidth) * normalizedY;
-        vertices[i] *= taper;
+      // Easing functions (like Quick_Grass) with safety checks
+      const easeOut = (t: number, power: number) => {
+        const clampedT = Math.max(0.0, Math.min(1.0, t));
+        const safePower = Math.max(0.1, power);
+        const result = 1.0 - Math.pow(1.0 - clampedT, safePower);
+        return isNaN(result) || !isFinite(result) ? 0.5 : result;
+      };
+      const easeIn = (t: number, power: number) => {
+        const clampedT = Math.max(0.0, Math.min(1.0, t));
+        const safePower = Math.max(0.1, power);
+        const result = Math.pow(clampedT, safePower);
+        return isNaN(result) || !isFinite(result) ? 0.5 : result;
+      };
 
-        if (normalizedY > 0.7) {
-          const tipTaper = 1.0 - (normalizedY - 0.7) * 3.0;
-          vertices[i] *= Math.max(tipTaper, 0.1);
+      // Apply width taper - SINGLE smooth curve like Quick_Grass!
+      for (let i = 0; i < vertices.length; i += 3) {
+        const x = vertices[i]; // -0.5 to 0.5 for unit PlaneGeometry
+        const y = vertices[i + 1];
+        const normalizedY = (y + 0.6) / 1.2; // Normalize to 0-1 range
+        const safeNormalizedY = Math.max(0.0, Math.min(1.0, normalizedY));
+
+        // easeOut: stays wide longer, narrows at end (natural look!)
+        const widthPercent = easeOut(1.0 - safeNormalizedY, widthTaperPower);
+
+        // Interpolate smoothly from tip width to base width
+        const targetWidth =
+          grassTipWidth + (grassBaseWidth - grassTipWidth) * widthPercent;
+
+        // CRITICAL: Converge to POINT at very tip (creates TRIANGLE tip, not flat!)
+        // tipPointPercent controls how much of the blade converges to a point
+        let finalWidth = targetWidth;
+        const pointStart = 1.0 - tipPointPercent; // Where point convergence starts
+
+        // Debug tip convergence
+        const isInTipZone = safeNormalizedY > pointStart;
+        if (i === 0 && segments === 12) {
+          console.log(
+            `🔺 Tip convergence: y=${safeNormalizedY.toFixed(
+              3
+            )}, pointStart=${pointStart.toFixed(
+              3
+            )}, inZone=${isInTipZone}, tipPointPercent=${tipPointPercent}`
+          );
         }
+
+        if (isInTipZone) {
+          const tipConverge = (safeNormalizedY - pointStart) / tipPointPercent; // 0→1
+          finalWidth = targetWidth * (1.0 - tipConverge); // Narrows to 0 at very top
+
+          if (i === 0 && segments === 12) {
+            console.log(
+              `  → tipConverge=${tipConverge.toFixed(
+                3
+              )}, targetWidth=${targetWidth.toFixed(
+                3
+              )}, finalWidth=${finalWidth.toFixed(3)}`
+            );
+          }
+        }
+
+        // Set absolute width directly
+        vertices[i] = x * finalWidth;
+
+        // NOTE: Natural forward lean is NOW applied in the SHADER (after rotation)
+        // This ensures that when bladesPerCluster > 1, all blades lean in the
+        // SAME world direction, creating a tight cluster instead of splaying out.
+        // See vertex shader for the lean implementation.
       }
 
+      // Shift blade up so base is at y=0
       for (let i = 0; i < vertices.length; i += 3) {
         vertices[i + 1] += (1.2 * grassHeight * grassHeightMultiplier) / 2;
       }
 
       geom.attributes.position.needsUpdate = true;
-      console.log(`  ✅ ${name}: ${segments} segments`);
+      geom.computeVertexNormals(); // Recompute normals after curve
+      console.log(
+        `  ✅ ${name}: ${segments} segs | taper:${widthTaperPower.toFixed(
+          1
+        )} | ${(grassBaseWidth * 100).toFixed(0)}mm→${(
+          grassTipWidth * 100
+        ).toFixed(0)}mm`
+      );
       return geom;
     };
 
@@ -873,7 +1464,15 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       medium: createGrassGeometry(6, "Medium Detail"), // Medium distance
       low: createGrassGeometry(3, "Low Detail"), // Far grass
     };
-  }, [grassHeight, grassHeightMultiplier, grassBaseWidth, grassTipWidth]);
+  }, [
+    grassHeight,
+    grassHeightMultiplier,
+    grassBaseWidth,
+    grassTipWidth,
+    grassBaseLean,
+    widthTaperPower,
+    tipPointPercent,
+  ]);
 
   // Update bladesPerCluster ref and force chunk regeneration when changed
   useEffect(() => {
@@ -903,6 +1502,52 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       );
     }
   }, [bladesPerCluster]);
+
+  // Regenerate chunks when grass shape changes (lean, width, etc.)
+  useEffect(() => {
+    // Skip initial mount
+    if (activeChunksRef.current.size === 0) return;
+
+    console.log(`🌿 Grass shape changed - regenerating all chunks...`);
+
+    // Set regenerating flag to prevent new chunks during cleanup
+    isRegeneratingRef.current = true;
+
+    // Clear all active chunks to force regeneration with new geometry
+    if (groupRef.current && activeChunksRef.current.size > 0) {
+      activeChunksRef.current.forEach((chunk) => {
+        if (groupRef.current) {
+          groupRef.current.remove(chunk);
+        }
+        chunk.geometry.dispose();
+      });
+      activeChunksRef.current.clear();
+
+      // Clear pool too to force fresh geometry
+      chunkPoolRef.current.forEach((chunk) => {
+        chunk.geometry.dispose();
+      });
+      chunkPoolRef.current = [];
+
+      console.log(
+        `✅ All chunks cleared - will regenerate with new grass shape in 100ms`
+      );
+    }
+
+    // Allow chunk creation again after brief delay
+    const timeout = setTimeout(() => {
+      isRegeneratingRef.current = false;
+      console.log(`✅ Ready to create new chunks with updated geometry`);
+    }, 100);
+
+    return () => clearTimeout(timeout);
+  }, [
+    grassBaseLean,
+    grassBaseWidth,
+    grassTipWidth,
+    widthTaperPower,
+    tipPointPercent,
+  ]);
 
   // Handle dynamic chunks toggle change
   useEffect(() => {
@@ -1444,6 +2089,8 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
             mediumDetailDistance: { value: mediumDetailDistance },
             viewMatrixInverse: { value: new THREE.Matrix4() },
             enableViewThickening: { value: enableViewThickening },
+            grassBaseLean: { value: grassBaseLean },
+            bladeCurveAmount: { value: bladeCurveAmount },
             disableMoonReflection: { value: disableMoonReflection },
             moonIntensity: { value: moonIntensity },
             moonDirection: {
@@ -1454,7 +2101,15 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
               ),
             },
             moonColor: { value: new THREE.Color(moonColor) },
+            sunDirection: {
+              value: new THREE.Vector3(
+                sunDirectionX,
+                sunDirectionY,
+                sunDirectionZ
+              ),
+            },
             disableTextureTint: { value: disableTextureTint },
+            edgeDarkeningStrength: { value: edgeDarkeningStrength },
             sssIntensity: { value: sssIntensity },
             sssPower: { value: sssPower },
             sssScale: { value: sssScale },
@@ -1479,6 +2134,16 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
             anisotropyStrength: { value: anisotropyStrength },
             anisotropyTangent: { value: anisotropyTangent },
             anisotropyBitangent: { value: anisotropyBitangent },
+            enableDistanceFog: { value: enableDistanceFog },
+            fogScatterDensity: { value: fogScatterDensity },
+            fogExtinctionDensity: { value: fogExtinctionDensity },
+            fogSkyColor: { value: new THREE.Color(fogSkyColor) },
+            enableWrappedLighting: { value: enableWrappedLighting },
+            wrapAmount: { value: wrapAmount },
+            enablePlayerInteraction: { value: enablePlayerInteraction },
+            playerInteractionRadius: { value: playerInteractionRadius },
+            playerInteractionStrength: { value: playerInteractionStrength },
+            playerInteractionRepel: { value: playerInteractionRepel },
           },
           transparent: true,
           side: THREE.DoubleSide,
@@ -1508,6 +2173,12 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
             mediumDetailDistance: { value: mediumDetailDistance },
             viewMatrixInverse: { value: new THREE.Matrix4() },
             enableViewThickening: { value: enableViewThickening },
+            grassBaseLean: { value: grassBaseLean },
+            bladeCurveAmount: { value: bladeCurveAmount },
+            enablePlayerInteraction: { value: enablePlayerInteraction },
+            playerInteractionRadius: { value: playerInteractionRadius },
+            playerInteractionStrength: { value: playerInteractionStrength },
+            playerInteractionRepel: { value: playerInteractionRepel },
           },
           vertexShader: depthVertexShader,
           fragmentShader: depthFragmentShader,
@@ -1624,6 +2295,12 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
         hdrPath,
         (hdrTexture) => {
           hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
+
+          // CRITICAL: Enable mipmaps for roughness-based blur!
+          hdrTexture.minFilter = THREE.LinearMipmapLinearFilter;
+          hdrTexture.magFilter = THREE.LinearFilter;
+          hdrTexture.generateMipmaps = true;
+
           hdrTexture.needsUpdate = true;
 
           if (envMapTextureRef.current) {
@@ -1632,6 +2309,10 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
           }
 
           envMapTextureRef.current = hdrTexture;
+
+          console.log(
+            "✨ HDR loaded with mipmaps - roughness-based reflections enabled!"
+          );
 
           if (materialRef.current) {
             materialRef.current.uniforms.envMap.value = hdrTexture;
@@ -1665,6 +2346,8 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       depthMaterialRef.current &&
       textureRef.current
     ) {
+      // Skip chunk creation/deletion during regeneration to prevent overlapping grass
+      const skipChunkOperations = isRegeneratingRef.current;
       // CRITICAL FIX: On first frame, clear any leftover chunks from previous render
       if (frameCountRef.current === 1) {
         console.log("🧹 First frame - clearing any leftover chunks...");
@@ -1698,408 +2381,424 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       }
 
       // ========== CONDITIONAL: DYNAMIC vs STATIC CHUNKS ==========
-      if (enableDynamicChunks) {
-        // ========== DYNAMIC CHUNK MODE ==========
-        // Calculate grid cell from actual player position
-        const baseCellX = Math.floor(playerX / chunkSize);
-        const baseCellZ = Math.floor(playerZ / chunkSize);
+      // Only run chunk operations if NOT regenerating
+      if (!skipChunkOperations) {
+        if (enableDynamicChunks) {
+          // ========== DYNAMIC CHUNK MODE ==========
+          // Calculate grid cell from actual player position
+          const baseCellX = Math.floor(playerX / chunkSize);
+          const baseCellZ = Math.floor(playerZ / chunkSize);
 
-        // NOTE: Removed cell-change regeneration system!
-        // Shader-based LOD handles scaling dynamically on GPU, so we don't need
-        // to regenerate chunks when player moves. This eliminates 50+ chunk
-        // recreations per cell change and significantly improves performance.
+          // NOTE: Removed cell-change regeneration system!
+          // Shader-based LOD handles scaling dynamically on GPU, so we don't need
+          // to regenerate chunks when player moves. This eliminates 50+ chunk
+          // recreations per cell change and significantly improves performance.
 
-        // Minimal debug logging (every 10 seconds)
-        if (frameCountRef.current % 600 === 0) {
-          console.log(
-            `🌾 Grass: Grid (${baseCellX},${baseCellZ}) | ${activeChunksRef.current.size} chunks`
-          );
-        }
-
-        // Determine how many chunks around camera (radius)
-        // Scale with maxDistance - minimal padding for smoother streaming
-        const chunkRadius = Math.ceil(maxDistance / chunkSize) + 1;
-
-        // Track which chunks should be visible
-        const visibleChunks = new Set<string>();
-
-        // CRITICAL: Define safe zone radius - scales with maxDistance!
-        // Safe zone = 30% of maxDistance, minimum 2 chunks, maximum 4 chunks
-        const SAFE_ZONE_RADIUS = Math.min(
-          Math.max(Math.ceil((maxDistance * 0.3) / chunkSize), 2),
-          4
-        );
-
-        // Debug: Log coverage on first few frames
-        if (frameCountRef.current <= 3) {
-          console.log(
-            `📐 Grass Coverage: maxDistance=${maxDistance}m → chunkRadius=${chunkRadius} (${
-              chunkRadius * chunkSize
-            }m), safeZone=${SAFE_ZONE_RADIUS} (${
-              SAFE_ZONE_RADIUS * chunkSize
-            }m)`
-          );
-        }
-
-        // Loop through grid cells around camera
-        for (let offsetX = -chunkRadius; offsetX <= chunkRadius; offsetX++) {
-          for (let offsetZ = -chunkRadius; offsetZ <= chunkRadius; offsetZ++) {
-            const gridX = baseCellX + offsetX;
-            const gridZ = baseCellZ + offsetZ;
-            const chunkKey = `${gridX},${gridZ}`;
-
-            // Calculate grid distance from player
-            const gridDistFromPlayer = Math.sqrt(
-              Math.pow(offsetX, 2) + Math.pow(offsetZ, 2)
+          // Minimal debug logging (every 10 seconds)
+          if (frameCountRef.current % 600 === 0) {
+            console.log(
+              `🌾 Grass: Grid (${baseCellX},${baseCellZ}) | ${activeChunksRef.current.size} chunks`
             );
+          }
 
-            // Determine if chunk should be visible
-            let isVisible = false;
+          // Determine how many chunks around camera (radius)
+          // Scale with maxDistance - minimal padding for smoother streaming
+          const chunkRadius = Math.ceil(maxDistance / chunkSize) + 1;
 
-            // ALWAYS include chunks within safe zone (NO distance check)
-            if (gridDistFromPlayer <= SAFE_ZONE_RADIUS) {
-              isVisible = true;
-            } else {
-              // For chunks outside safe zone, check distance
-              const chunkMinX = gridX * chunkSize;
-              const chunkMaxX = (gridX + 1) * chunkSize;
-              const chunkMinZ = gridZ * chunkSize;
-              const chunkMaxZ = (gridZ + 1) * chunkSize;
+          // Track which chunks should be visible
+          const visibleChunks = new Set<string>();
 
-              // Find closest point on chunk to actual player position
-              const closestX = Math.max(
-                chunkMinX,
-                Math.min(playerX, chunkMaxX)
+          // CRITICAL: Define safe zone radius - scales with maxDistance!
+          // Safe zone = 30% of maxDistance, minimum 2 chunks, maximum 4 chunks
+          const SAFE_ZONE_RADIUS = Math.min(
+            Math.max(Math.ceil((maxDistance * 0.3) / chunkSize), 2),
+            4
+          );
+
+          // Debug: Log coverage on first few frames
+          if (frameCountRef.current <= 3) {
+            console.log(
+              `📐 Grass Coverage: maxDistance=${maxDistance}m → chunkRadius=${chunkRadius} (${
+                chunkRadius * chunkSize
+              }m), safeZone=${SAFE_ZONE_RADIUS} (${
+                SAFE_ZONE_RADIUS * chunkSize
+              }m)`
+            );
+          }
+
+          // Loop through grid cells around camera
+          for (let offsetX = -chunkRadius; offsetX <= chunkRadius; offsetX++) {
+            for (
+              let offsetZ = -chunkRadius;
+              offsetZ <= chunkRadius;
+              offsetZ++
+            ) {
+              const gridX = baseCellX + offsetX;
+              const gridZ = baseCellZ + offsetZ;
+              const chunkKey = `${gridX},${gridZ}`;
+
+              // Calculate grid distance from player
+              const gridDistFromPlayer = Math.sqrt(
+                Math.pow(offsetX, 2) + Math.pow(offsetZ, 2)
               );
-              const closestZ = Math.max(
-                chunkMinZ,
-                Math.min(playerZ, chunkMaxZ)
-              );
 
-              // Distance to closest point from actual player
-              const distToChunk = Math.sqrt(
-                Math.pow(closestX - playerX, 2) +
-                  Math.pow(closestZ - playerZ, 2)
-              );
+              // Determine if chunk should be visible
+              let isVisible = false;
 
-              // Include if within max distance (small safety margin)
-              if (distToChunk <= maxDistance + chunkSize) {
+              // ALWAYS include chunks within safe zone (NO distance check)
+              if (gridDistFromPlayer <= SAFE_ZONE_RADIUS) {
                 isVisible = true;
-              }
-            }
-
-            // Skip this chunk if not visible
-            if (!isVisible) continue;
-
-            visibleChunks.add(chunkKey);
-
-            // Check if chunk already exists
-            const existingChunk = activeChunksRef.current.get(chunkKey);
-            if (existingChunk) {
-              // Just update visibility - DON'T regenerate every frame!
-              const isInSafeZone = gridDistFromPlayer <= SAFE_ZONE_RADIUS;
-              existingChunk.frustumCulled = !isInSafeZone;
-              existingChunk.visible = true;
-            } else {
-              // Create new chunk with correct LOD for current distance
-              const chunkCenterX = gridX * chunkSize + chunkSize / 2;
-              const chunkCenterZ = gridZ * chunkSize + chunkSize / 2;
-
-              // Determine LOD based on distance from actual player position
-              const chunkDistFromPlayer = Math.sqrt(
-                Math.pow(chunkCenterX - playerX, 2) +
-                  Math.pow(chunkCenterZ - playerZ, 2)
-              );
-              let geometry;
-              if (chunkDistFromPlayer < highDetailDistance) {
-                geometry = geometries.high;
-              } else if (chunkDistFromPlayer < mediumDetailDistance) {
-                geometry = geometries.medium;
               } else {
-                geometry = geometries.low;
-              }
+                // For chunks outside safe zone, check distance
+                const chunkMinX = gridX * chunkSize;
+                const chunkMaxX = (gridX + 1) * chunkSize;
+                const chunkMinZ = gridZ * chunkSize;
+                const chunkMaxZ = (gridZ + 1) * chunkSize;
 
-              // POOLING OPTIMIZATION: Try to reuse chunk from pool first!
-              // This reduces GC overhead significantly in open-world scenarios
-              const pooledChunk = chunkPoolRef.current.pop(); // Try to get from pool
-              let chunk: THREE.InstancedMesh;
-              let reusedFromPool = false;
+                // Find closest point on chunk to actual player position
+                const closestX = Math.max(
+                  chunkMinX,
+                  Math.min(playerX, chunkMaxX)
+                );
+                const closestZ = Math.max(
+                  chunkMinZ,
+                  Math.min(playerZ, chunkMaxZ)
+                );
 
-              if (!pooledChunk) {
-                // Pool is empty - create new chunk
-                const newChunk = createChunkMesh(geometry);
-                if (!newChunk) continue; // Skip if creation failed
-                chunk = newChunk;
-              } else {
-                chunk = pooledChunk;
-                reusedFromPool = true;
-                // Reusing pooled chunk - geometry might be different, so check
-                if (chunk.geometry !== geometry) {
-                  // Dispose old geometry and assign new one
-                  chunk.geometry.dispose();
-                  chunk.geometry = geometry.clone();
+                // Distance to closest point from actual player
+                const distToChunk = Math.sqrt(
+                  Math.pow(closestX - playerX, 2) +
+                    Math.pow(closestZ - playerZ, 2)
+                );
 
-                  // Need to regenerate attributes for the new geometry
-                  // (This will be done in updateChunkPosition)
+                // Include if within max distance (small safety margin)
+                if (distToChunk <= maxDistance + chunkSize) {
+                  isVisible = true;
                 }
               }
 
-              // Log pool statistics every 600 frames (every 10 seconds @ 60fps)
-              if (
-                frameCountRef.current % 600 === 0 &&
-                frameCountRef.current > 0 &&
-                chunkPoolRef.current.length > 0
-              ) {
-                console.log(
-                  `♻️ Pooling active: ${
-                    chunkPoolRef.current.length
-                  } chunks in pool, ${activeChunksRef.current.size} active, ${
-                    reusedFromPool ? "REUSING" : "creating new"
-                  }`
+              // Skip this chunk if not visible
+              if (!isVisible) continue;
+
+              visibleChunks.add(chunkKey);
+
+              // Check if chunk already exists
+              const existingChunk = activeChunksRef.current.get(chunkKey);
+              if (existingChunk) {
+                // Just update visibility - DON'T regenerate every frame!
+                const isInSafeZone = gridDistFromPlayer <= SAFE_ZONE_RADIUS;
+                existingChunk.frustumCulled = !isInSafeZone;
+                existingChunk.visible = true;
+              } else {
+                // Create new chunk with correct LOD for current distance
+                const chunkCenterX = gridX * chunkSize + chunkSize / 2;
+                const chunkCenterZ = gridZ * chunkSize + chunkSize / 2;
+
+                // Determine LOD based on distance from actual player position
+                const chunkDistFromPlayer = Math.sqrt(
+                  Math.pow(chunkCenterX - playerX, 2) +
+                    Math.pow(chunkCenterZ - playerZ, 2)
+                );
+                let geometry;
+                if (chunkDistFromPlayer < highDetailDistance) {
+                  geometry = geometries.high;
+                } else if (chunkDistFromPlayer < mediumDetailDistance) {
+                  geometry = geometries.medium;
+                } else {
+                  geometry = geometries.low;
+                }
+
+                // POOLING OPTIMIZATION: Try to reuse chunk from pool first!
+                // This reduces GC overhead significantly in open-world scenarios
+                const pooledChunk = chunkPoolRef.current.pop(); // Try to get from pool
+                let chunk: THREE.InstancedMesh;
+                let reusedFromPool = false;
+
+                if (!pooledChunk) {
+                  // Pool is empty - create new chunk
+                  const newChunk = createChunkMesh(geometry);
+                  if (!newChunk) continue; // Skip if creation failed
+                  chunk = newChunk;
+                } else {
+                  chunk = pooledChunk;
+                  reusedFromPool = true;
+                  // Reusing pooled chunk - geometry might be different, so check
+                  if (chunk.geometry !== geometry) {
+                    // Dispose old geometry and assign new one
+                    chunk.geometry.dispose();
+                    chunk.geometry = geometry.clone();
+
+                    // Need to regenerate attributes for the new geometry
+                    // (This will be done in updateChunkPosition)
+                  }
+                }
+
+                // Log pool statistics every 600 frames (every 10 seconds @ 60fps)
+                if (
+                  frameCountRef.current % 600 === 0 &&
+                  frameCountRef.current > 0 &&
+                  chunkPoolRef.current.length > 0
+                ) {
+                  console.log(
+                    `♻️ Pooling active: ${
+                      chunkPoolRef.current.length
+                    } chunks in pool, ${activeChunksRef.current.size} active, ${
+                      reusedFromPool ? "REUSING" : "creating new"
+                    }`
+                  );
+                }
+
+                // Update chunk position and regenerate grass with current player position
+                updateChunkPosition(chunk, gridX, gridZ, playerX, playerZ);
+
+                // Disable frustum culling for safe zone chunks to prevent disappearing
+                const isInSafeZone = gridDistFromPlayer <= SAFE_ZONE_RADIUS;
+                chunk.frustumCulled = !isInSafeZone;
+                chunk.visible = true;
+
+                // Force matrix update
+                chunk.matrixWorldNeedsUpdate = true;
+                chunk.updateMatrix();
+                chunk.updateMatrixWorld(true);
+
+                // Add to scene
+                if (groupRef.current) {
+                  groupRef.current.add(chunk);
+                }
+
+                // Track active chunk
+                activeChunksRef.current.set(chunkKey, chunk);
+
+                // Chunk created (no logging to avoid spam)
+              }
+            }
+          }
+
+          // Remove chunks that are no longer visible
+          // BUT: NEVER remove chunks within guaranteed safe zone around player!
+          const chunksToRemove: string[] = [];
+
+          activeChunksRef.current.forEach((chunk, key) => {
+            if (!visibleChunks.has(key)) {
+              // Calculate distance from player cell
+              const [chunkX, chunkZ] = key.split(",").map(Number);
+              const distFromPlayer = Math.sqrt(
+                Math.pow(chunkX - baseCellX, 2) +
+                  Math.pow(chunkZ - baseCellZ, 2)
+              );
+
+              // HARD RULE: NEVER remove chunks within safe zone!
+              if (distFromPlayer <= SAFE_ZONE_RADIUS) {
+                // Force this chunk to stay visible
+                chunk.visible = true;
+                chunk.frustumCulled = false; // Never let Three.js cull it
+                chunk.matrixWorldNeedsUpdate = true;
+                // Log less frequently to avoid console spam
+                if (frameCountRef.current % 120 === 0) {
+                  console.log(`🔒 Safe zone protecting chunks...`);
+                }
+                return; // Don't add to removal list
+              }
+
+              chunksToRemove.push(key);
+            }
+          });
+
+          // Log if removing chunks near player (debug - should NEVER happen now!)
+          if (chunksToRemove.length > 0) {
+            chunksToRemove.forEach((key) => {
+              const [chunkX, chunkZ] = key.split(",").map(Number);
+              const dist = Math.sqrt(
+                Math.pow(chunkX - baseCellX, 2) +
+                  Math.pow(chunkZ - baseCellZ, 2)
+              );
+              // This should NEVER happen with the safe zone protection
+              if (dist <= SAFE_ZONE_RADIUS) {
+                console.error(
+                  `❌ BUG: Removing chunk in safe zone! Key: ${key}, Distance: ${dist.toFixed(
+                    1
+                  )} chunks, Player: ${baseCellX},${baseCellZ}`
+                );
+              }
+            });
+          }
+
+          chunksToRemove.forEach((key) => {
+            const chunk = activeChunksRef.current.get(key);
+            if (chunk) {
+              // Debug: Log removals near player
+              const [chunkX, chunkZ] = key.split(",").map(Number);
+              const dist = Math.sqrt(
+                Math.pow(chunkX - baseCellX, 2) +
+                  Math.pow(chunkZ - baseCellZ, 2)
+              );
+              if (dist <= 3) {
+                console.warn(
+                  `➖ Removing chunk ${key} - distance: ${dist.toFixed(
+                    1
+                  )} chunks (SHOULD NOT HAPPEN!)`
                 );
               }
 
-              // Update chunk position and regenerate grass with current player position
-              updateChunkPosition(chunk, gridX, gridZ, playerX, playerZ);
-
-              // Disable frustum culling for safe zone chunks to prevent disappearing
-              const isInSafeZone = gridDistFromPlayer <= SAFE_ZONE_RADIUS;
-              chunk.frustumCulled = !isInSafeZone;
-              chunk.visible = true;
-
-              // Force matrix update
-              chunk.matrixWorldNeedsUpdate = true;
-              chunk.updateMatrix();
-              chunk.updateMatrixWorld(true);
-
-              // Add to scene
+              // Remove from scene
               if (groupRef.current) {
-                groupRef.current.add(chunk);
+                groupRef.current.remove(chunk);
+              }
+              chunk.visible = false;
+
+              // POOLING: Return chunk to pool instead of disposing!
+              // This reduces GC overhead by 30-50% in open-world scenarios
+              const MAX_POOL_SIZE = 100; // Prevent unbounded pool growth
+              if (chunkPoolRef.current.length < MAX_POOL_SIZE) {
+                chunkPoolRef.current.push(chunk);
+              } else {
+                // Pool is full - dispose this chunk to free memory
+                chunk.geometry.dispose();
               }
 
-              // Track active chunk
-              activeChunksRef.current.set(chunkKey, chunk);
-
-              // Chunk created (no logging to avoid spam)
-            }
-          }
-        }
-
-        // Remove chunks that are no longer visible
-        // BUT: NEVER remove chunks within guaranteed safe zone around player!
-        const chunksToRemove: string[] = [];
-
-        activeChunksRef.current.forEach((chunk, key) => {
-          if (!visibleChunks.has(key)) {
-            // Calculate distance from player cell
-            const [chunkX, chunkZ] = key.split(",").map(Number);
-            const distFromPlayer = Math.sqrt(
-              Math.pow(chunkX - baseCellX, 2) + Math.pow(chunkZ - baseCellZ, 2)
-            );
-
-            // HARD RULE: NEVER remove chunks within safe zone!
-            if (distFromPlayer <= SAFE_ZONE_RADIUS) {
-              // Force this chunk to stay visible
-              chunk.visible = true;
-              chunk.frustumCulled = false; // Never let Three.js cull it
-              chunk.matrixWorldNeedsUpdate = true;
-              // Log less frequently to avoid console spam
-              if (frameCountRef.current % 120 === 0) {
-                console.log(`🔒 Safe zone protecting chunks...`);
-              }
-              return; // Don't add to removal list
-            }
-
-            chunksToRemove.push(key);
-          }
-        });
-
-        // Log if removing chunks near player (debug - should NEVER happen now!)
-        if (chunksToRemove.length > 0) {
-          chunksToRemove.forEach((key) => {
-            const [chunkX, chunkZ] = key.split(",").map(Number);
-            const dist = Math.sqrt(
-              Math.pow(chunkX - baseCellX, 2) + Math.pow(chunkZ - baseCellZ, 2)
-            );
-            // This should NEVER happen with the safe zone protection
-            if (dist <= SAFE_ZONE_RADIUS) {
-              console.error(
-                `❌ BUG: Removing chunk in safe zone! Key: ${key}, Distance: ${dist.toFixed(
-                  1
-                )} chunks, Player: ${baseCellX},${baseCellZ}`
-              );
+              // Remove from active chunks
+              activeChunksRef.current.delete(key);
             }
           });
-        }
-
-        chunksToRemove.forEach((key) => {
-          const chunk = activeChunksRef.current.get(key);
-          if (chunk) {
-            // Debug: Log removals near player
-            const [chunkX, chunkZ] = key.split(",").map(Number);
-            const dist = Math.sqrt(
-              Math.pow(chunkX - baseCellX, 2) + Math.pow(chunkZ - baseCellZ, 2)
+        } else {
+          // ========== STATIC CHUNK MODE (for testing) ==========
+          // Create a single static chunk at origin on first frame only
+          if (
+            frameCountRef.current === 1 ||
+            activeChunksRef.current.size === 0
+          ) {
+            console.log(
+              "🔒 Static Mode: Creating single DENSE chunk at origin for testing..."
             );
-            if (dist <= 3) {
-              console.warn(
-                `➖ Removing chunk ${key} - distance: ${dist.toFixed(
-                  1
-                )} chunks (SHOULD NOT HAPPEN!)`
-              );
-            }
+            console.log(
+              `  🌾 Using FULL grass count: ${grassCount} blades (not divided by chunks)`
+            );
 
-            // Remove from scene
-            if (groupRef.current) {
-              groupRef.current.remove(chunk);
-            }
-            chunk.visible = false;
-
-            // POOLING: Return chunk to pool instead of disposing!
-            // This reduces GC overhead by 30-50% in open-world scenarios
-            const MAX_POOL_SIZE = 100; // Prevent unbounded pool growth
-            if (chunkPoolRef.current.length < MAX_POOL_SIZE) {
-              chunkPoolRef.current.push(chunk);
-            } else {
-              // Pool is full - dispose this chunk to free memory
+            // Clear any existing chunks first
+            activeChunksRef.current.forEach((chunk) => {
+              if (groupRef.current) {
+                groupRef.current.remove(chunk);
+              }
               chunk.geometry.dispose();
-            }
+            });
+            activeChunksRef.current.clear();
 
-            // Remove from active chunks
-            activeChunksRef.current.delete(key);
-          }
-        });
-      } else {
-        // ========== STATIC CHUNK MODE (for testing) ==========
-        // Create a single static chunk at origin on first frame only
-        if (frameCountRef.current === 1 || activeChunksRef.current.size === 0) {
-          console.log(
-            "🔒 Static Mode: Creating single DENSE chunk at origin for testing..."
-          );
-          console.log(
-            `  🌾 Using FULL grass count: ${grassCount} blades (not divided by chunks)`
-          );
+            // Create a single DENSE static chunk using FULL grass count
+            // Generate chunk data with the FULL grass count instead of per-chunk amount
+            const staticChunkData = createChunkData(
+              0,
+              0,
+              grassCount, // Use FULL grass count for dense testing!
+              geometries.high,
+              bladesPerClusterRef.current,
+              0,
+              0
+            );
 
-          // Clear any existing chunks first
-          activeChunksRef.current.forEach((chunk) => {
+            // Create geometry with full density
+            const staticGeo = geometries.high.clone();
+            staticGeo.setAttribute(
+              "offset",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.offsets.slice(
+                  0,
+                  staticChunkData.instanceIndex * 3
+                ),
+                3
+              )
+            );
+            staticGeo.setAttribute(
+              "scale",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.scales.slice(0, staticChunkData.instanceIndex),
+                1
+              )
+            );
+            staticGeo.setAttribute(
+              "rotation",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.rotations.slice(
+                  0,
+                  staticChunkData.instanceIndex
+                ),
+                1
+              )
+            );
+            staticGeo.setAttribute(
+              "windInfluence",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.windInfluences.slice(
+                  0,
+                  staticChunkData.instanceIndex
+                ),
+                1
+              )
+            );
+            staticGeo.setAttribute(
+              "grassType",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.grassTypes.slice(
+                  0,
+                  staticChunkData.instanceIndex
+                ),
+                1
+              )
+            );
+            staticGeo.setAttribute(
+              "lodLevel",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.lodLevelsArr.slice(
+                  0,
+                  staticChunkData.instanceIndex
+                ),
+                1
+              )
+            );
+            staticGeo.setAttribute(
+              "colorVariation",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.colorVariations.slice(
+                  0,
+                  staticChunkData.instanceIndex * 3
+                ),
+                3
+              )
+            );
+            staticGeo.setAttribute(
+              "tipColorVariation",
+              new THREE.InstancedBufferAttribute(
+                staticChunkData.tipColorVariations.slice(
+                  0,
+                  staticChunkData.instanceIndex * 3
+                ),
+                3
+              )
+            );
+
+            // Create the static mesh
+            const staticChunk = new THREE.InstancedMesh(
+              staticGeo,
+              materialRef.current,
+              staticChunkData.instanceIndex
+            );
+
+            staticChunk.position.set(0, 0, 0);
+            staticChunk.frustumCulled = false;
+            staticChunk.castShadow = shadowCasting;
+            staticChunk.receiveShadow = shadowReceiving;
+            staticChunk.customDepthMaterial = depthMaterialRef.current;
+            staticChunk.visible = true;
+
             if (groupRef.current) {
-              groupRef.current.remove(chunk);
+              groupRef.current.add(staticChunk);
             }
-            chunk.geometry.dispose();
-          });
-          activeChunksRef.current.clear();
-
-          // Create a single DENSE static chunk using FULL grass count
-          // Generate chunk data with the FULL grass count instead of per-chunk amount
-          const staticChunkData = createChunkData(
-            0,
-            0,
-            grassCount, // Use FULL grass count for dense testing!
-            geometries.high,
-            bladesPerClusterRef.current,
-            0,
-            0
-          );
-
-          // Create geometry with full density
-          const staticGeo = geometries.high.clone();
-          staticGeo.setAttribute(
-            "offset",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.offsets.slice(
-                0,
-                staticChunkData.instanceIndex * 3
-              ),
-              3
-            )
-          );
-          staticGeo.setAttribute(
-            "scale",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.scales.slice(0, staticChunkData.instanceIndex),
-              1
-            )
-          );
-          staticGeo.setAttribute(
-            "rotation",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.rotations.slice(0, staticChunkData.instanceIndex),
-              1
-            )
-          );
-          staticGeo.setAttribute(
-            "windInfluence",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.windInfluences.slice(
-                0,
-                staticChunkData.instanceIndex
-              ),
-              1
-            )
-          );
-          staticGeo.setAttribute(
-            "grassType",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.grassTypes.slice(
-                0,
-                staticChunkData.instanceIndex
-              ),
-              1
-            )
-          );
-          staticGeo.setAttribute(
-            "lodLevel",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.lodLevelsArr.slice(
-                0,
-                staticChunkData.instanceIndex
-              ),
-              1
-            )
-          );
-          staticGeo.setAttribute(
-            "colorVariation",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.colorVariations.slice(
-                0,
-                staticChunkData.instanceIndex * 3
-              ),
-              3
-            )
-          );
-          staticGeo.setAttribute(
-            "tipColorVariation",
-            new THREE.InstancedBufferAttribute(
-              staticChunkData.tipColorVariations.slice(
-                0,
-                staticChunkData.instanceIndex * 3
-              ),
-              3
-            )
-          );
-
-          // Create the static mesh
-          const staticChunk = new THREE.InstancedMesh(
-            staticGeo,
-            materialRef.current,
-            staticChunkData.instanceIndex
-          );
-
-          staticChunk.position.set(0, 0, 0);
-          staticChunk.frustumCulled = false;
-          staticChunk.castShadow = shadowCasting;
-          staticChunk.receiveShadow = shadowReceiving;
-          staticChunk.customDepthMaterial = depthMaterialRef.current;
-          staticChunk.visible = true;
-
-          if (groupRef.current) {
-            groupRef.current.add(staticChunk);
+            activeChunksRef.current.set("0,0", staticChunk);
+            console.log(
+              `✅ Static chunk created with ${staticChunkData.instanceIndex} grass blades`
+            );
           }
-          activeChunksRef.current.set("0,0", staticChunk);
-          console.log(
-            `✅ Static chunk created with ${staticChunkData.instanceIndex} grass blades`
-          );
         }
-      }
+      } // End skipChunkOperations check
     }
 
     // ========== SHADER UNIFORM UPDATES ==========
@@ -2128,7 +2827,9 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       u.moonIntensity.value = moonIntensity;
       u.moonDirection.value.set(moonDirectionX, moonDirectionY, moonDirectionZ);
       u.moonColor.value.set(moonColor);
+      u.sunDirection.value.set(sunDirectionX, sunDirectionY, sunDirectionZ);
       u.disableTextureTint.value = disableTextureTint;
+      u.edgeDarkeningStrength.value = edgeDarkeningStrength;
       u.sssIntensity.value = sssIntensity;
       u.sssPower.value = sssPower;
       u.sssScale.value = sssScale;
@@ -2150,6 +2851,16 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       u.roughnessIntensity.value = roughnessIntensity;
       u.enableAnisotropy.value = enableAnisotropy;
       u.anisotropyStrength.value = anisotropyStrength;
+      u.enableDistanceFog.value = enableDistanceFog;
+      u.fogScatterDensity.value = fogScatterDensity;
+      u.fogExtinctionDensity.value = fogExtinctionDensity;
+      u.fogSkyColor.value.set(fogSkyColor);
+      u.enableWrappedLighting.value = enableWrappedLighting;
+      u.wrapAmount.value = wrapAmount;
+      u.enablePlayerInteraction.value = enablePlayerInteraction;
+      u.playerInteractionRadius.value = playerInteractionRadius;
+      u.playerInteractionStrength.value = playerInteractionStrength;
+      u.playerInteractionRepel.value = playerInteractionRepel;
       u.anisotropyTangent.value = anisotropyTangent;
       u.anisotropyBitangent.value = anisotropyBitangent;
 
@@ -2165,6 +2876,8 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       u.mediumDetailDistance.value = mediumDetailDistance;
       u.viewMatrixInverse.value.copy(camera.matrixWorld);
       u.enableViewThickening.value = enableViewThickening;
+      u.grassBaseLean.value = grassBaseLean;
+      u.bladeCurveAmount.value = bladeCurveAmount;
     }
 
     // Synchronize depth material uniforms for accurate animated shadows
@@ -2193,6 +2906,12 @@ export const SimonDevGrass11: React.FC<SimonDevGrass11Props> = ({
       d.mediumDetailDistance.value = mediumDetailDistance;
       d.viewMatrixInverse.value.copy(camera.matrixWorld);
       d.enableViewThickening.value = enableViewThickening;
+      d.grassBaseLean.value = grassBaseLean;
+      d.bladeCurveAmount.value = bladeCurveAmount;
+      d.enablePlayerInteraction.value = enablePlayerInteraction;
+      d.playerInteractionRadius.value = playerInteractionRadius;
+      d.playerInteractionStrength.value = playerInteractionStrength;
+      d.playerInteractionRepel.value = playerInteractionRepel;
     }
   });
 

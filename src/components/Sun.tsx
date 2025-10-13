@@ -10,28 +10,28 @@ import * as THREE from "three";
  */
 export const Sun = forwardRef<THREE.Mesh>((props, ref) => {
   const { enabled, sunSize, sunColor, sunIntensity, sunX, sunY, sunZ } =
-    useControls("☀️ GodRays (Map5)", {
+    useControls("☀️ Sun Mesh (Map5)", {
       enabled: {
-        value: false,
-        label: "✨ Enable Sun Mesh",
+        value: true,
+        label: "✨ Enable Sun Mesh (Required for God Rays!)",
       },
       sunSize: {
-        value: 3,
+        value: 8,
         min: 0.5,
-        max: 20,
+        max: 30,
         step: 0.5,
-        label: "☀️ Sun Size",
+        label: "☀️ Sun Size (Bigger = More Visible)",
       },
       sunColor: {
-        value: "#fff5e6",
-        label: "🎨 Sun Color",
+        value: "#ffffff",
+        label: "🎨 Sun Color (White = Natural Sun)",
       },
       sunIntensity: {
-        value: 0.5,
+        value: 2.0,
         min: 0.0,
-        max: 5.0,
-        step: 0.1,
-        label: "💡 Glow Intensity",
+        max: 10.0,
+        step: 0.5,
+        label: "💡 Sun Brightness (For Bloom Glow)",
       },
       sunX: {
         value: -30,
@@ -60,21 +60,20 @@ export const Sun = forwardRef<THREE.Mesh>((props, ref) => {
 
   return (
     <mesh ref={ref} position={[sunX, sunY, sunZ]} renderOrder={999}>
-      <sphereGeometry args={[sunSize, 16, 16]} />
+      <sphereGeometry args={[sunSize, 32, 32]} />
       <meshBasicMaterial
-        color={sunColor}
+        color={new THREE.Color(sunColor).multiplyScalar(sunIntensity)}
         toneMapped={false}
-        transparent={true}
-        opacity={0.8}
+        transparent={false}
         depthWrite={false}
         depthTest={false}
       />
-      {/* Optional glow effect */}
+      {/* Point light for scene lighting (optional glow) */}
       {sunIntensity > 0 && (
         <pointLight
           color={sunColor}
-          intensity={sunIntensity}
-          distance={100}
+          intensity={sunIntensity * 5}
+          distance={200}
           decay={2}
         />
       )}

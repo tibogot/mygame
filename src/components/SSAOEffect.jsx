@@ -5,10 +5,11 @@ import {
   SMAA,
   N8AO,
   GodRays,
+  Bloom,
 } from "@react-three/postprocessing";
 import { BlendFunction, KernelSize, SMAAPreset } from "postprocessing";
 import { useControls } from "leva";
-import { VolumetricFog } from "./VolumetricFog.tsx";
+import { VolumetricFog } from "./VolumetricFog.jsx"; // Scene-based fog (no post-processing needed!)
 import { Sun } from "./Sun.tsx";
 import { RainEffectPostprocessing } from "./RainEffectPostprocessing.tsx";
 
@@ -107,48 +108,48 @@ export const SSAOEffect = () => {
     exposure,
     clampMax,
     blur,
-  } = useControls("☀️ GodRays (Map5)", {
+  } = useControls("☀️ God Rays (Map5)", {
     godRaysEnabled: {
       value: false,
-      label: "✨ Enable GodRays",
+      label: "✨ Enable God Rays (Volumetric Light Shafts)",
     },
     samples: {
-      value: 30,
+      value: 60,
       min: 15,
       max: 100,
       step: 5,
-      label: "🎯 Samples (Quality)",
+      label: "🎯 Samples (Quality) - Higher = Better",
     },
     density: {
-      value: 0.8,
+      value: 0.96,
       min: 0.5,
       max: 1.0,
       step: 0.01,
-      label: "💨 Density",
+      label: "💨 Density (Higher = More Visible)",
     },
     decay: {
-      value: 0.88,
+      value: 0.9,
       min: 0.5,
       max: 1.0,
       step: 0.01,
-      label: "📉 Decay",
+      label: "📉 Decay (Lower = Longer Rays)",
     },
     weight: {
-      value: 0.05,
+      value: 0.4,
       min: 0.0,
       max: 1.0,
       step: 0.01,
-      label: "⚖️ Weight",
+      label: "⚖️ Weight (Strength)",
     },
     exposure: {
-      value: 0.1,
+      value: 0.6,
       min: 0.0,
       max: 1.0,
       step: 0.01,
-      label: "💡 Exposure",
+      label: "💡 Exposure (Brightness)",
     },
     clampMax: {
-      value: 0.3,
+      value: 1.0,
       min: 0.1,
       max: 2.0,
       step: 0.05,
@@ -157,6 +158,44 @@ export const SSAOEffect = () => {
     blur: {
       value: true,
       label: "🌀 Blur (Smoothing)",
+    },
+  });
+
+  const {
+    enableBloom,
+    bloomIntensity,
+    bloomLuminanceThreshold,
+    bloomLuminanceSmoothing,
+    bloomMipmapBlur,
+  } = useControls("✨ Bloom (Realistic Sun Glow)", {
+    enableBloom: {
+      value: false,
+      label: "🌟 Enable Bloom (Sun + Bright Objects Glow)",
+    },
+    bloomIntensity: {
+      value: 1.5,
+      min: 0.0,
+      max: 5.0,
+      step: 0.1,
+      label: "💡 Bloom Intensity (Glow Strength)",
+    },
+    bloomLuminanceThreshold: {
+      value: 0.8,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "🌟 Luminance Threshold (What Glows)",
+    },
+    bloomLuminanceSmoothing: {
+      value: 0.3,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "🌊 Smoothing (Glow Softness)",
+    },
+    bloomMipmapBlur: {
+      value: true,
+      label: "🌀 Mipmap Blur (Better Quality)",
     },
   });
 
@@ -229,6 +268,9 @@ export const SSAOEffect = () => {
       <>
         {/* Sun mesh for GodRays origin (can still be enabled separately) */}
         <Sun ref={sunRef} />
+
+        {/* Volumetric Fog - Scene-based (works WITHOUT post-processing!) */}
+        <VolumetricFog />
       </>
     );
   }
@@ -237,6 +279,9 @@ export const SSAOEffect = () => {
     <>
       {/* Sun mesh for GodRays origin */}
       <Sun ref={sunRef} />
+
+      {/* Volumetric Fog - Scene-based (works WITHOUT post-processing!) */}
+      <VolumetricFog />
 
       <Suspense fallback={null}>
         <EffectComposer multisampling={multisampling}>
@@ -254,12 +299,24 @@ export const SSAOEffect = () => {
             />
           )}
 
-          {/* GodRays - Temporarily disabled due to white screen issue */}
-          {/* TODO: Debug GodRays - possibly needs different setup */}
+          {/* Bloom - Makes bright objects glow (sun, specular highlights, etc.) */}
+          {enableBloom && (
+            <Bloom
+              intensity={bloomIntensity}
+              luminanceThreshold={bloomLuminanceThreshold}
+              luminanceSmoothing={bloomLuminanceSmoothing}
+              mipmapBlur={bloomMipmapBlur}
+              blendFunction={BlendFunction.SCREEN}
+            />
+          )}
+
+          {/* GodRays - Known issue: causes white screen */}
+          {/* The white screen happens because GodRays needs depth buffer access */}
+          {/* which conflicts with custom depth materials (like grass shadows) */}
           {false && godRaysEnabled && sunRef.current && (
             <GodRays
               sun={sunRef.current}
-              blendFunction={BlendFunction.ADD}
+              blendFunction={BlendFunction.SCREEN}
               samples={samples}
               density={density}
               decay={decay}
@@ -270,9 +327,6 @@ export const SSAOEffect = () => {
               blur={blur}
             />
           )}
-
-          {/* Volumetric Fog - Raymarched screen-space fog (has its own toggle) */}
-          <VolumetricFog />
 
           {/* Rain Effect with Refraction - Realistic water appearance */}
           {enableRainPP && (
