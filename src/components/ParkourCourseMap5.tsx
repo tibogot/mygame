@@ -6,14 +6,24 @@ import * as THREE from "three";
 import CustomShaderMaterial from "three-custom-shader-material";
 import { useControls } from "leva";
 import { SpheresMaterials } from "./SpheresMaterials";
+import { WaterShaderSimple } from "./WaterShaderSimple";
+import { WaterShaderTest } from "./WaterShaderTest";
+import { WaterShaderDebug } from "./WaterShaderDebug";
+import { WaterShaderFull } from "./WaterShaderFull";
+import { WaterShaderQuickGrass } from "./WaterShaderQuickGrass";
+import { ImpostorForest } from "./ImpostorForest";
+import { GroundScatterBatched } from "./GroundScatterBatched";
 
 export const ParkourCourseMap5 = () => {
-  // Load mountain model for background
+  // Load mountain model for background (RESTORED - your original mountain!)
   const { scene: mountainScene } = useGLTF("/models/mountain.glb");
 
   // Elevator reference and animation
   const elevatorRef = useRef<any>(null);
   const timeRef = useRef(0);
+
+  // Ground scatter reference
+  const groundMeshRef = useRef<THREE.Mesh | null>(null);
 
   useFrame((state, delta) => {
     if (elevatorRef.current) {
@@ -29,9 +39,9 @@ export const ParkourCourseMap5 = () => {
     }
   });
 
-  // Mountain ring position controls - Surrounds the map
+  // Mountain ring controls - YOUR ORIGINAL MOUNTAIN (RESTORED!)
   const { mountainX, mountainY, mountainZ, mountainScale } = useControls(
-    "Mountain Background (Map5)",
+    "🏔️ Mountain Background (Map5)",
     {
       mountainX: {
         value: 0,
@@ -41,7 +51,7 @@ export const ParkourCourseMap5 = () => {
         label: "Position X",
       },
       mountainY: {
-        value: -0.5, // Match ground level
+        value: -0.5,
         min: -50,
         max: 50,
         step: 1,
@@ -55,7 +65,7 @@ export const ParkourCourseMap5 = () => {
         label: "Position Z",
       },
       mountainScale: {
-        value: 0.08, // Scale to fit around 333-unit map
+        value: 0.08,
         min: 0.01,
         max: 0.5,
         step: 0.01,
@@ -64,11 +74,164 @@ export const ParkourCourseMap5 = () => {
     }
   );
 
+  // Forest controls - Using InstancedMesh2 for ZELDA-SCALE forests!
+  const {
+    enableForest,
+    forestMinRadius,
+    forestRadius,
+    treeCount,
+    useLOD,
+    lodMidDistance,
+    lodLowDistance,
+    lodMidRatio,
+    lodLowRatio,
+    leavesOpacity,
+    leavesAlphaTest,
+  } = useControls("🌲 InstancedMesh2 Forest (Map5)", {
+    enableForest: {
+      value: false,
+      label: "🌲 Enable Forest",
+    },
+    treeCount: {
+      value: 1000,
+      min: 100,
+      max: 5000,
+      step: 100,
+      label: "Tree Count",
+    },
+    forestMinRadius: {
+      value: 80,
+      min: 30,
+      max: 150,
+      step: 10,
+      label: "Min Radius (clear center)",
+    },
+    forestRadius: {
+      value: 200,
+      min: 50,
+      max: 300,
+      step: 10,
+      label: "Max Radius",
+    },
+    useLOD: {
+      value: true,
+      label: "🎨 Use LOD",
+    },
+    lodMidDistance: {
+      value: 100,
+      min: 30,
+      max: 200,
+      step: 5,
+      label: "🔍 LOD Mid Distance (m)",
+    },
+    lodLowDistance: {
+      value: 180,
+      min: 50,
+      max: 300,
+      step: 10,
+      label: "🔍 LOD Low Distance (m)",
+    },
+    lodMidRatio: {
+      value: 0.5,
+      min: 0.2,
+      max: 0.8,
+      step: 0.05,
+      label: "🔍 LOD Mid Detail Ratio",
+    },
+    lodLowRatio: {
+      value: 0.2,
+      min: 0.05,
+      max: 0.5,
+      step: 0.05,
+      label: "🔍 LOD Low Detail Ratio",
+    },
+    leavesOpacity: {
+      value: 1.0,
+      min: 0.3,
+      max: 1.0,
+      step: 0.05,
+      label: "🍃 Leaves Opacity",
+    },
+    leavesAlphaTest: {
+      value: 0.5,
+      min: 0.0,
+      max: 1.0,
+      step: 0.05,
+      label: "🍃 Leaves Alpha Cutoff",
+    },
+  });
+
   // Material spheres toggle
   const { enableMaterialSpheres } = useControls("Material Showcase (Map5)", {
     enableMaterialSpheres: {
       value: false,
       label: "🎨 Enable Material Spheres",
+    },
+  });
+
+  // Ground scatter controls
+  const {
+    enableGroundScatter,
+    scatterRadius,
+    stoneCount,
+    fernCount,
+    flowerCount,
+    stoneScale,
+    fernScale,
+    flowerScale,
+  } = useControls("🌿 Ground Scatter (Map5)", {
+    enableGroundScatter: {
+      value: false,
+      label: "🌿 Enable Ground Scatter",
+    },
+    scatterRadius: {
+      value: 50,
+      min: 20,
+      max: 200,
+      step: 5,
+      label: "📏 Scatter Radius (area size)",
+    },
+    stoneCount: {
+      value: 100,
+      min: 0,
+      max: 500,
+      step: 10,
+      label: "🪨 Stones",
+    },
+    stoneScale: {
+      value: 0.005,
+      min: 0.002,
+      max: 0.02,
+      step: 0.0005,
+      label: "🪨 Stone Scale (0.002-0.02 range)",
+    },
+    fernCount: {
+      value: 200,
+      min: 0,
+      max: 1000,
+      step: 50,
+      label: "🌿 Ferns",
+    },
+    fernScale: {
+      value: 0.7,
+      min: 0.1,
+      max: 3.0,
+      step: 0.1,
+      label: "🌿 Fern Scale",
+    },
+    flowerCount: {
+      value: 300,
+      min: 0,
+      max: 1000,
+      step: 50,
+      label: "🌸 Flowers",
+    },
+    flowerScale: {
+      value: 0.1,
+      min: 0.1,
+      max: 3.0,
+      step: 0.1,
+      label: "🌸 Flower Scale",
     },
   });
 
@@ -94,6 +257,76 @@ export const ParkourCourseMap5 = () => {
         label: "Plane Size",
       },
     });
+
+  // Water shader controls
+  const {
+    enableWaterShader,
+    waterVersion,
+    debugVersion,
+    waterPosX,
+    waterPosY,
+    waterPosZ,
+    poolWidth,
+    poolLength,
+  } = useControls("💧 Water Shader (Map5)", {
+    enableWaterShader: {
+      value: false, // Disabled to test impostor without interference
+      label: "💧 Enable Water",
+    },
+    waterVersion: {
+      value: "quickgrass",
+      options: {
+        "🔍 Debug (step-by-step)": "debug",
+        "Test (basic waves)": "test",
+        "Simple (noise + fresnel)": "simple",
+        "Full (FBM only)": "full",
+        "🌊 Quick_Grass (SSR + FBM)": "quickgrass",
+      },
+      label: "Water Version",
+    },
+    debugVersion: {
+      value: 1,
+      min: 1,
+      max: 4,
+      step: 1,
+      label: "🔍 Debug Version (1=Basic, 2=Hash, 3=Noise, 4=Fresnel)",
+    },
+    waterPosX: {
+      value: -80,
+      min: -150,
+      max: 150,
+      step: 1,
+      label: "Pool Position X",
+    },
+    waterPosY: {
+      value: 1.8,
+      min: -10,
+      max: 10,
+      step: 0.1,
+      label: "Water Level Y",
+    },
+    waterPosZ: {
+      value: -80,
+      min: -150,
+      max: 150,
+      step: 1,
+      label: "Pool Position Z",
+    },
+    poolWidth: {
+      value: 40,
+      min: 10,
+      max: 100,
+      step: 5,
+      label: "Pool Width",
+    },
+    poolLength: {
+      value: 40,
+      min: 10,
+      max: 100,
+      step: 5,
+      label: "Pool Length",
+    },
+  });
 
   // Use the same grid texture as the ground
   const gridTexture = useTexture("/textures/grid.png");
@@ -163,7 +396,7 @@ export const ParkourCourseMap5 = () => {
     />
   );
 
-  // Clone and setup mountain with visible materials and centered pivot
+  // Clone and setup YOUR ORIGINAL MOUNTAIN - RESTORED!
   const mountain = useMemo(() => {
     const clonedMountain = mountainScene.clone();
 
@@ -195,12 +428,77 @@ export const ParkourCourseMap5 = () => {
 
   return (
     <group>
-      {/* MOUNTAIN RING - Circular rock formation surrounding the map */}
+      {/* GROUND SCATTER ZONE - Large flat surface matching your parkour floor level! */}
+      <mesh
+        ref={(ref) => {
+          if (ref && !groundMeshRef.current) {
+            // Ensure geometry has normals computed
+            ref.geometry.computeVertexNormals();
+            ref.updateMatrixWorld(true);
+            groundMeshRef.current = ref;
+          }
+        }}
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0, 0]}
+        visible={false}
+      >
+        <circleGeometry args={[scatterRadius, 64]} />
+      </mesh>
+
+      {/* GROUND SCATTER - Stones, Ferns, Flowers spread on surface! */}
+      {enableGroundScatter && groundMeshRef.current && (
+        <GroundScatterBatched
+          surfaceMesh={groundMeshRef.current}
+          assets={[
+            {
+              modelPath: "/models/stone-origin-transformed.glb",
+              count: stoneCount,
+              scaleRange: [0.8, 1.2],
+              scaleMultiplier: stoneScale,
+              castShadow: true,
+            },
+            {
+              modelPath: "/models/fern-origin-transformed.glb",
+              count: fernCount,
+              scaleRange: [0.8, 1.2],
+              scaleMultiplier: fernScale,
+              castShadow: true,
+            },
+            {
+              modelPath: "/models/low_poly_flower-transformed.glb",
+              count: flowerCount,
+              scaleRange: [0.8, 1.2],
+              scaleMultiplier: flowerScale,
+              castShadow: true,
+            },
+          ]}
+        />
+      )}
+
+      {/* YOUR ORIGINAL MOUNTAIN - RESTORED! */}
       <primitive
         object={mountain}
         position={[mountainX, mountainY, mountainZ]}
         scale={mountainScale}
       />
+
+      {/* INSTANCEDMESH2 FOREST - Ring shape + LOD for ZELDA-SCALE! */}
+      {enableForest && (
+        <ImpostorForest
+          centerPosition={[mountainX, mountainY, mountainZ]}
+          minRadius={forestMinRadius}
+          radius={forestRadius}
+          treeCount={treeCount}
+          modelPath="/octahedral-impostor-main/public/tree.glb"
+          enableImpostor={true}
+          useInstancing={true}
+          useLOD={useLOD}
+          lodDistances={{ mid: lodMidDistance, low: lodLowDistance }}
+          simplificationRatios={{ mid: lodMidRatio, low: lodLowRatio }}
+          leavesOpacity={leavesOpacity}
+          leavesAlphaTest={leavesAlphaTest}
+        />
+      )}
 
       {/* LONG CONTINUOUS SLOPE - with tile texture */}
       <RigidBody
@@ -957,6 +1255,160 @@ export const ParkourCourseMap5 = () => {
             metalness={0.1}
           />
         </mesh>
+      )}
+
+      {/* ========== WATER SHADER - SWIMMING POOL ========== */}
+      {/* Exact recreation of Quick_Grass water shader with SSR */}
+      {enableWaterShader && (
+        <group>
+          {/* Water surface - Screen-space reflections + animated waves */}
+          {waterVersion === "debug" && (
+            <WaterShaderDebug
+              position={[waterPosX, waterPosY, waterPosZ]}
+              size={[poolWidth, poolLength]}
+              version={debugVersion}
+            />
+          )}
+          {waterVersion === "test" && (
+            <WaterShaderTest
+              position={[waterPosX, waterPosY, waterPosZ]}
+              size={[poolWidth, poolLength]}
+            />
+          )}
+          {waterVersion === "simple" && (
+            <WaterShaderSimple
+              position={[waterPosX, waterPosY, waterPosZ]}
+              size={[poolWidth, poolLength]}
+            />
+          )}
+          {waterVersion === "full" && (
+            <WaterShaderFull
+              position={[waterPosX, waterPosY, waterPosZ]}
+              size={[poolWidth, poolLength]}
+            />
+          )}
+          {waterVersion === "quickgrass" && (
+            <WaterShaderQuickGrass
+              position={[waterPosX, waterPosY, waterPosZ]}
+              size={[poolWidth, poolLength]}
+            />
+          )}
+
+          {/* Swimming pool floor - On the ground */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[waterPosX, 0.1, waterPosZ]}
+            friction={0.5}
+          >
+            <CuboidCollider
+              args={[poolWidth / 2, 0.1, poolLength / 2]}
+              friction={0.5}
+              restitution={0}
+            />
+            <mesh receiveShadow>
+              <boxGeometry args={[poolWidth, 0.2, poolLength]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Pool walls - North (tall enough for water level) */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[waterPosX, waterPosY / 2, waterPosZ - poolLength / 2]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[poolWidth / 2, waterPosY / 2, 0.25]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[poolWidth, waterPosY, 0.5]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Pool walls - South */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[waterPosX, waterPosY / 2, waterPosZ + poolLength / 2]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[poolWidth / 2, waterPosY / 2, 0.25]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[poolWidth, waterPosY, 0.5]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Pool walls - East */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[waterPosX + poolWidth / 2, waterPosY / 2, waterPosZ]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[0.25, waterPosY / 2, poolLength / 2]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, waterPosY, poolLength]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Pool walls - West (complete wall) */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[waterPosX - poolWidth / 2, waterPosY / 2, waterPosZ]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[0.25, waterPosY / 2, poolLength / 2]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, waterPosY, poolLength]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Pool stairs - Leading UP to the pool from ground level */}
+          {[...Array(18)].map((_, i) => (
+            <RigidBody
+              key={`pool-stair-${i}`}
+              type="fixed"
+              colliders={false}
+              position={[
+                waterPosX + poolWidth / 2 - 4.5 + i * 0.25,
+                i * 0.1 + 0.05,
+                waterPosZ,
+              ]}
+              friction={1}
+            >
+              <CuboidCollider
+                args={[0.125, 0.05, 2]}
+                friction={1}
+                restitution={0}
+              />
+              <mesh castShadow receiveShadow>
+                <boxGeometry args={[0.25, 0.1, 4]} />
+                <TileMaterial />
+              </mesh>
+            </RigidBody>
+          ))}
+        </group>
       )}
     </group>
   );

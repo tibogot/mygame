@@ -58,17 +58,36 @@ export const BVHCollider = ({ onColliderReady }: BVHColliderProps) => {
     staticMeshes.forEach((mesh) => {
       if (!mesh.geometry) return;
 
-      const geom = mesh.geometry.clone();
+      // Skip InstancedMesh2 trees - they have their own BVH!
+      if (mesh.isInstancedMesh) {
+        return; // Skip instanced meshes
+      }
+
+      let geom = mesh.geometry.clone();
+
       // Transform to world space
       geom.applyMatrix4(mesh.matrixWorld);
+
+      // Normalize geometry attributes to ensure compatibility
+      // Remove index if it exists (not all geometries have it)
+      if (geom.index) {
+        geom = geom.toNonIndexed();
+      }
+
       visualGeometries.push(geom);
     });
 
     // Merge all geometries
-    const colliderGeometry = BufferGeometryUtils.mergeGeometries(
-      visualGeometries,
-      false
-    );
+    let colliderGeometry;
+    try {
+      colliderGeometry = BufferGeometryUtils.mergeGeometries(
+        visualGeometries,
+        false
+      );
+    } catch (error) {
+      console.error("Failed to merge geometries:", error);
+      return;
+    }
 
     if (!colliderGeometry) {
       console.error("Failed to merge geometries!");

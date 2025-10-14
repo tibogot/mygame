@@ -29,7 +29,38 @@ interface DeerInstance {
   speed: THREE.Vector2; // Random walk speed variation
 }
 
-export const DeerHerd: React.FC = () => {
+interface DeerHerdProps {
+  terrainMesh?: THREE.Mesh | null; // Optional terrain for height sampling
+}
+
+/**
+ * Get terrain height at X,Z position using raycasting
+ */
+function getTerrainHeight(
+  x: number,
+  z: number,
+  terrainMesh: THREE.Mesh | null | undefined,
+  defaultHeight: number = 0
+): number {
+  if (!terrainMesh) return defaultHeight;
+
+  // Raycast from above to find terrain height
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3(x, 100, z); // Start high above
+  const direction = new THREE.Vector3(0, -1, 0); // Point down
+
+  raycaster.set(origin, direction);
+
+  const intersects = raycaster.intersectObject(terrainMesh, false);
+
+  if (intersects.length > 0) {
+    return intersects[0].point.y;
+  }
+
+  return defaultHeight;
+}
+
+export const DeerHerd: React.FC<DeerHerdProps> = ({ terrainMesh }) => {
   const [deerInstances, setDeerInstances] = useState<DeerInstance[]>([]);
   const { animations } = useGLTF("/models/Deer.gltf");
 
@@ -137,11 +168,14 @@ export const DeerHerd: React.FC = () => {
       const x = Math.cos(angle) * distance;
       const z = Math.sin(angle) * distance;
 
+      // Get terrain height at spawn position
+      const y = getTerrainHeight(x, z, terrainMesh, 0);
+
       newInstances.push({
         id: i,
         groupRef: React.createRef<THREE.Group>(),
         aiState: Math.random() > 0.5 ? "idle" : "eating", // Start with idle or eating
-        position: new THREE.Vector3(x, 0, z),
+        position: new THREE.Vector3(x, y, z),
         rotation: Math.random() * Math.PI * 2,
         targetRotation: Math.random() * Math.PI * 2,
         stateTimer: Math.random() * 3, // Offset timers
@@ -157,7 +191,14 @@ export const DeerHerd: React.FC = () => {
 
     setDeerInstances(newInstances);
     console.log(`🦌 Spawned ${deerCount} deer in herd`);
-  }, [enabled, deerCount, spawnRadius, minStateDuration, maxStateDuration]);
+  }, [
+    enabled,
+    deerCount,
+    spawnRadius,
+    minStateDuration,
+    maxStateDuration,
+    terrainMesh,
+  ]);
 
   // AI update for all deer
   useFrame((state, delta) => {
@@ -219,7 +260,9 @@ export const DeerHerd: React.FC = () => {
           if (Math.abs(newX) > mapBoundary || Math.abs(newZ) > mapBoundary) {
             newDeer.targetRotation = newDeer.rotation + Math.PI;
           } else {
-            newDeer.position = new THREE.Vector3(newX, 0, newZ);
+            // Sample terrain height at new position
+            const newY = getTerrainHeight(newX, newZ, terrainMesh, 0);
+            newDeer.position = new THREE.Vector3(newX, newY, newZ);
           }
         }
 
@@ -241,6 +284,7 @@ export const DeerHerd: React.FC = () => {
           castShadow={castShadow}
           receiveShadow={receiveShadow}
           enableAI={enableAI}
+          terrainMesh={terrainMesh}
         />
       ))}
     </>
@@ -255,7 +299,16 @@ const DeerWithAnimation: React.FC<{
   castShadow: boolean;
   receiveShadow: boolean;
   enableAI: boolean;
-}> = ({ deer, animations, deerScale, castShadow, receiveShadow, enableAI }) => {
+  terrainMesh?: THREE.Mesh | null;
+}> = ({
+  deer,
+  animations,
+  deerScale,
+  castShadow,
+  receiveShadow,
+  enableAI,
+  terrainMesh,
+}) => {
   const { actions } = useAnimations(animations, deer.groupRef);
 
   // Play animation based on AI state
@@ -295,10 +348,18 @@ const DeerWithAnimation: React.FC<{
     };
   }, [deer.aiState, actions, enableAI]);
 
+  // Sample terrain height for rendering (in case of stationary deer)
+  const renderY = getTerrainHeight(
+    deer.position.x,
+    deer.position.z,
+    terrainMesh,
+    deer.position.y
+  );
+
   return (
     <Deer
       ref={deer.groupRef}
-      position={[deer.position.x, 0, deer.position.z]}
+      position={[deer.position.x, renderY, deer.position.z]}
       rotation={[0, deer.rotation, 0]}
       scale={deerScale}
       castShadow={castShadow}

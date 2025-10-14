@@ -43,12 +43,41 @@ interface DeerControllerProps {
   position?: [number, number, number];
   scale?: number;
   rotation?: [number, number, number];
+  terrainMesh?: THREE.Mesh | null; // Optional terrain for height sampling
+}
+
+/**
+ * Get terrain height at X,Z position using raycasting
+ */
+function getTerrainHeight(
+  x: number,
+  z: number,
+  terrainMesh: THREE.Mesh | null | undefined,
+  defaultHeight: number = 0
+): number {
+  if (!terrainMesh) return defaultHeight;
+
+  // Raycast from above to find terrain height
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3(x, 100, z); // Start high above
+  const direction = new THREE.Vector3(0, -1, 0); // Point down
+
+  raycaster.set(origin, direction);
+
+  const intersects = raycaster.intersectObject(terrainMesh, false);
+
+  if (intersects.length > 0) {
+    return intersects[0].point.y;
+  }
+
+  return defaultHeight;
 }
 
 export const DeerController: React.FC<DeerControllerProps> = ({
   position = [0, 0, 0],
   scale = 1.0,
   rotation = [0, 0, 0],
+  terrainMesh,
 }) => {
   const group = useRef<THREE.Group>(null);
   const { animations } = useGLTF("/models/Deer.gltf");
@@ -56,7 +85,10 @@ export const DeerController: React.FC<DeerControllerProps> = ({
 
   // AI state management
   const [aiState, setAIState] = useState<AIState>("idle");
-  const [position3D, setPosition3D] = useState(new THREE.Vector3(20, 0, -20));
+  const initialY = getTerrainHeight(20, -20, terrainMesh, 0);
+  const [position3D, setPosition3D] = useState(
+    new THREE.Vector3(20, initialY, -20)
+  );
   const [rotation3D, setRotation3D] = useState(0);
   const [targetRotation, setTargetRotation] = useState(0);
   const [stateTimer, setStateTimer] = useState(0);
@@ -235,8 +267,9 @@ export const DeerController: React.FC<DeerControllerProps> = ({
         // Turn around (180 degrees)
         setTargetRotation(rotation3D + Math.PI);
       } else {
-        // Update position
-        setPosition3D(new THREE.Vector3(newX, 0, newZ));
+        // Update position - TERRAIN-AWARE!
+        const newY = getTerrainHeight(newX, newZ, terrainMesh, 0);
+        setPosition3D(new THREE.Vector3(newX, newY, newZ));
       }
     }
   });

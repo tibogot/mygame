@@ -7,7 +7,7 @@ import {
 } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import { useControls } from "leva";
-import { useRef, useState, Suspense } from "react";
+import { useRef, useState, Suspense, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CharacterController } from "./CharacterController";
@@ -29,6 +29,7 @@ import { GroundScatter } from "./GroundScatter";
 import { GroundScatterTest } from "./GroundScatterTest";
 import { ParkourCourse } from "./ParkourCourse";
 import { ParkourCourseMap5 } from "./ParkourCourseMap5";
+import { ParkourCourseMap6 } from "./ParkourCourseMap6";
 import { DustParticles } from "./DustParticles";
 import { ButterflyParticles } from "./ButterflyParticles";
 import { RainParticles3D } from "./RainParticles3D";
@@ -69,6 +70,11 @@ const maps = {
     position: [0, 0, 0],
     color: "#6b8e23",
   },
+  "map6(heightmap-terrain)": {
+    type: "heightmap",
+    size: 200,
+    position: [0, 0, 0],
+  },
   castle_on_hills: {
     type: "model",
     scale: 3,
@@ -105,6 +111,29 @@ export const Experience = () => {
   const surfaceRef = useRef(null);
   const [enableScatter, setEnableScatter] = useState(false);
   const [bvhCollider, setBVHCollider] = useState(null);
+  const [terrainMesh, setTerrainMesh] = useState(null); // Map6 terrain for deer
+
+  // Terrain height getter for Map6 grass/effects - STABLE with useCallback!
+  const getTerrainHeight = useCallback(
+    (x, z) => {
+      if (!terrainMesh) return 0;
+
+      // Raycast from above to find terrain height
+      const raycaster = new THREE.Raycaster();
+      const origin = new THREE.Vector3(x, 100, z);
+      const direction = new THREE.Vector3(0, -1, 0);
+
+      raycaster.set(origin, direction);
+      const intersects = raycaster.intersectObject(terrainMesh, false);
+
+      if (intersects.length > 0) {
+        return intersects[0].point.y;
+      }
+
+      return 0;
+    },
+    [terrainMesh]
+  ); // Only changes when terrain mesh changes!
 
   const { map } = useControls("Map", {
     map: {
@@ -636,7 +665,7 @@ export const Experience = () => {
             {enableScatter && enableGroundScatter && (
               <GroundScatterTest surfaceRef={surfaceRef} enabled={true} />
             )}
-            {/* Parkour course - different for map4 vs map5 */}
+            {/* Parkour course - different for map4 vs map5 vs map6 */}
             {map === "map4(terrain+newcharacter)" && <ParkourCourse />}
             {map === "map5(copy)" && <ParkourCourseMap5 />}
             {/* Dynamic Leaves v3 (CPU-based) for map5 - react to character movement */}
@@ -810,6 +839,187 @@ export const Experience = () => {
               />
             )}
           </>
+        ) : currentMap.type === "heightmap" ? (
+          <>
+            {/* MAP6 - HEIGHTMAP TERRAIN with ground scatter, trees, and parkour! */}
+            <ParkourCourseMap6 onTerrainReady={setTerrainMesh} />
+
+            {/* Dynamic Leaves v3 (CPU-based) for map6 - TERRAIN-AWARE! */}
+            {map === "map6(heightmap-terrain)" && enableDynamicLeaves3 && (
+              <DynamicLeaves3
+                count={leavesCount}
+                areaSize={leavesAreaSize}
+                ybotPosition={characterPositionVector.current}
+                ybotVelocity={characterVelocity.current}
+                getGroundHeight={getTerrainHeight}
+                characterInteractionRange={leavesInteractionRange}
+                characterPushStrength={0.8}
+                characterSwirlStrength={0.5}
+              />
+            )}
+
+            {/* Dynamic Leaves v4 (GPU-based) for map6 - TERRAIN-AWARE! */}
+            {map === "map6(heightmap-terrain)" && enableDynamicLeaves4 && (
+              <DynamicLeaves4
+                count={leavesCount}
+                areaSize={leavesAreaSize}
+                ybotPosition={characterPositionVector.current}
+                ybotVelocity={characterVelocity.current}
+                getGroundHeight={getTerrainHeight}
+                characterInteractionRange={leavesInteractionRange}
+                characterPushStrength={0.8}
+                characterSwirlStrength={0.5}
+              />
+            )}
+
+            {/* SimonDev Grass for map6 - TERRAIN-AWARE! */}
+            {map === "map6(heightmap-terrain)" && enableSimonDevGrass9 && (
+              <SimonDevGrass9
+                areaSize={50}
+                getGroundHeight={getTerrainHeight}
+                grassHeight={1.0}
+                grassScale={1.0}
+              />
+            )}
+
+            {map === "map6(heightmap-terrain)" && enableSimonDevGrass10 && (
+              <SimonDevGrass10
+                areaSize={50}
+                getGroundHeight={getTerrainHeight}
+                grassHeight={1.0}
+                grassScale={1.0}
+              />
+            )}
+
+            {map === "map6(heightmap-terrain)" && enableSimonDevGrass11 && (
+              <SimonDevGrass11
+                areaSize={200}
+                getGroundHeight={getTerrainHeight}
+                grassHeight={1.0}
+                grassScale={1.0}
+                characterPosition={characterPositionVector.current}
+              />
+            )}
+
+            {/* Dust Particles for map6 */}
+            {map === "map6(heightmap-terrain)" && enableDustParticles && (
+              <DustParticles
+                count={dustCount}
+                spawnRange={dustSpawnRange}
+                maxDistance={dustMaxDistance}
+                dustSize={[dustSizeX, dustSizeY]}
+                enabled={enableDustParticles}
+              />
+            )}
+
+            {/* 3D Rain for map6 */}
+            {map === "map6(heightmap-terrain)" && enable3DRain && (
+              <RainParticles3D
+                enabled={enable3DRain}
+                density={rainDensity}
+                areaSize={rainAreaSize}
+                rainSpeed={rain3DSpeed}
+                particleSize={rainParticleSize}
+                rainHeight={20.0}
+                rainColor={rain3DColor}
+                rainOpacity={rain3DOpacity}
+              />
+            )}
+
+            {/* Butterflies/Moths for map6 */}
+            {map === "map6(heightmap-terrain)" &&
+              enableButterflies &&
+              butterflyTexture !== "both" && (
+                <ButterflyParticles
+                  count={butterflyCount}
+                  spawnRange={butterflySpawnRange}
+                  maxDistance={butterflyMaxDistance}
+                  butterflySize={[butterflyWidth, butterflyHeight]}
+                  texture={butterflyTexture}
+                  heightMin={butterflyHeightMin}
+                  heightMax={butterflyHeightMax}
+                  spreadRadius={butterflySpreadRadius}
+                  enabled={enableButterflies}
+                />
+              )}
+
+            {map === "map6(heightmap-terrain)" &&
+              enableButterflies &&
+              butterflyTexture === "both" && (
+                <>
+                  <ButterflyParticles
+                    count={Math.ceil(butterflyCount / 2)}
+                    spawnRange={butterflySpawnRange}
+                    maxDistance={butterflyMaxDistance}
+                    butterflySize={[butterflyWidth, butterflyHeight]}
+                    texture="butterfly"
+                    heightMin={butterflyHeightMin}
+                    heightMax={butterflyHeightMax}
+                    spreadRadius={butterflySpreadRadius}
+                    enabled={enableButterflies}
+                  />
+                  <ButterflyParticles
+                    count={Math.floor(butterflyCount / 2)}
+                    spawnRange={butterflySpawnRange}
+                    maxDistance={butterflyMaxDistance}
+                    butterflySize={[butterflyWidth, butterflyHeight]}
+                    texture="moth"
+                    heightMin={butterflyHeightMin}
+                    heightMax={butterflyHeightMax}
+                    spreadRadius={butterflySpreadRadius}
+                    enabled={enableButterflies}
+                  />
+                </>
+              )}
+
+            {/* AO Test Objects for map6 */}
+            {map === "map6(heightmap-terrain)" && <AOTestObjects />}
+
+            {/* Moving Shadow Planes for map6 */}
+            {map === "map6(heightmap-terrain)" && (
+              <MovingShadowPlanes
+                characterPosition={characterPositionVector.current}
+              />
+            )}
+
+            {/* Deer for map6 - TERRAIN-AWARE! */}
+            {map === "map6(heightmap-terrain)" && (
+              <DeerController terrainMesh={terrainMesh} />
+            )}
+            {map === "map6(heightmap-terrain)" && (
+              <DeerHerd terrainMesh={terrainMesh} />
+            )}
+
+            {/* Japanese House for map6 */}
+            {map === "map6(heightmap-terrain)" && enableJapaneseHouse && (
+              <JapaneseHouse
+                position={[housePositionX, housePositionY, housePositionZ]}
+                rotation={[0, houseRotationY, 0]}
+                scale={houseScale}
+                castShadow
+                receiveShadow
+              />
+            )}
+
+            {/* BVH Collider for map6 */}
+            {map === "map6(heightmap-terrain)" && (
+              <BVHCollider onColliderReady={setBVHCollider} />
+            )}
+
+            {/* Character controller for map6 */}
+            <GodotCharacterHybrid
+              position={[0, 1.5, 0]}
+              cameraMode={cameraMode === "orbit" ? "orbit" : "follow"}
+              collider={bvhCollider}
+              onPositionChange={(pos) => {
+                characterPositionRef.current = pos;
+                characterPositionVector.current.set(pos[0], pos[1], pos[2]);
+              }}
+              onVelocityChange={(vel) => {
+                characterVelocity.current.set(vel[0], vel[1], vel[2]);
+              }}
+            />
+          </>
         ) : currentMap.type === "terrain" ? (
           <>
             <TerrainMap
@@ -846,10 +1056,10 @@ export const Experience = () => {
         )}
       </Physics>
 
-      {/* Post-Processing Effects (N8AO + Volumetric Fog + Rain) for map5 */}
-      {(map === "map4(terrain+newcharacter)" || map === "map5(copy)") && (
-        <SSAOEffect />
-      )}
+      {/* Post-Processing Effects (N8AO + Volumetric Fog + Rain) for map4/map5/map6 */}
+      {(map === "map4(terrain+newcharacter)" ||
+        map === "map5(copy)" ||
+        map === "map6(heightmap-terrain)") && <SSAOEffect />}
     </>
   );
 };
