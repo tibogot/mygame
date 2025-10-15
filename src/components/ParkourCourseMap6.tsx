@@ -14,6 +14,7 @@ import { WaterShaderQuickGrass } from "./WaterShaderQuickGrass";
 import { ImpostorForest } from "./ImpostorForest";
 import { GroundScatterBatched } from "./GroundScatterBatched";
 import { WavingFlag } from "./WavingFlag";
+import { FlowingRiver } from "./FlowingRiver";
 
 interface ParkourCourseMap6Props {
   onTerrainReady?: (terrainMesh: THREE.Mesh) => void;
@@ -2066,6 +2067,13 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
           getGroundHeight={heightmapLookupRef.current}
         />
       )}
+
+      {/* ========== FLOWING RIVER - Realistic river in terrain valley ========== */}
+      <FlowingRiver
+        terrainMesh={terrainMeshRef.current}
+        position={[0, 2, 0]} // Higher so you can see it and position it
+        size={[200, 200]} // Full map size for now - adjust in Leva!
+      />
     </group>
   );
 };
