@@ -13,8 +13,6 @@ export const BVHCollider = ({ onColliderReady }: BVHColliderProps) => {
   const colliderRef = useRef<THREE.Mesh | null>(null);
 
   useEffect(() => {
-    console.log("🔨 Building BVH Collider from scene...");
-
     // Collect all static meshes from the scene
     const staticMeshes: THREE.Mesh[] = [];
 
@@ -44,8 +42,6 @@ export const BVHCollider = ({ onColliderReady }: BVHColliderProps) => {
         }
       }
     });
-
-    console.log(`Found ${staticMeshes.length} static meshes for collision`);
 
     if (staticMeshes.length === 0) {
       console.warn("No static meshes found for BVH collider!");
@@ -117,13 +113,6 @@ export const BVHCollider = ({ onColliderReady }: BVHColliderProps) => {
     );
 
     colliderRef.current = collider;
-
-    console.log("✅ BVH Collider built successfully!");
-    console.log(
-      "  - Triangles:",
-      mergedGeometry.index ? mergedGeometry.index.count / 3 : 0
-    );
-    console.log("  - BVH ready:", !!mergedGeometry.boundsTree);
 
     if (onColliderReady) {
       onColliderReady(collider);

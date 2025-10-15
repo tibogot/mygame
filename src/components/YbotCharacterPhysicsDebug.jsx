@@ -65,12 +65,12 @@ export function YbotCharacterPhysicsDebug({ animation, ...props }) {
   // console.log("Character yPosition:", yPosition);
 
   // Log available animations once
-  useEffect(() => {
-    console.log(
-      "Available ybot animations:",
-      animations.map((anim) => anim.name)
-    );
-  }, [animations]);
+  // useEffect(() => {
+  //   console.log(
+  //     "Available ybot animations:",
+  //     animations.map((anim) => anim.name)
+  //   );
+  // }, [animations]);
 
   // Animation mapping - all available animations from ybot.glb
   const animationMap = {

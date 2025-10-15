@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, forwardRef } from "react";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Effect, BlendFunction } from "postprocessing";
@@ -155,73 +155,78 @@ export const VolumetricFog = forwardRef((_props, ref) => {
     fogNear,
     fogFar,
     distanceFogStrength,
-  } = useControls("🌫️ Volumetric Fog (Map5)", {
-    enabled: {
-      value: false,
-      label: "✨ Enable Fog",
-    },
-    fogMode: {
-      value: "distance",
-      options: {
-        "🏔️ Distance Only (Mountains)": "distance",
-        "💨 Ground Only (Mist)": "ground",
-        "🌫️ Both Combined": "both",
+  } = useControls("🌤️ AMBIENCE", {
+    volumetricFog: folder(
+      {
+        enabled: {
+          value: false,
+          label: "✨ Enable Fog",
+        },
+        fogMode: {
+          value: "distance",
+          options: {
+            "🏔️ Distance Only (Mountains)": "distance",
+            "💨 Ground Only (Mist)": "ground",
+            "🌫️ Both Combined": "both",
+          },
+          label: "🎭 Fog Type",
+        },
+        distanceFogStrength: {
+          value: 1.0,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "🏔️ Distance Fog Strength",
+        },
+        fogNear: {
+          value: 0.1,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "📍 Fog Start Distance",
+        },
+        fogFar: {
+          value: 0.7,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "📍 Fog End Distance",
+        },
+        fogDensity: {
+          value: 4.0,
+          min: 0.0,
+          max: 10.0,
+          step: 0.1,
+          label: "💨 Ground Fog Density",
+        },
+        fogHeight: {
+          value: 0.5,
+          min: 0.0,
+          max: 2.0,
+          step: 0.1,
+          label: "📏 Height Distribution",
+        },
+        fogColor: {
+          value: "#c8d5e8",
+          label: "🎨 Fog Color",
+        },
+        noiseScale: {
+          value: 5.0,
+          min: 1.0,
+          max: 20.0,
+          step: 0.5,
+          label: "🌊 Noise Scale",
+        },
+        noiseSpeed: {
+          value: 0.3,
+          min: 0.0,
+          max: 2.0,
+          step: 0.1,
+          label: "⚡ Animation Speed",
+        },
       },
-      label: "🎭 Fog Type",
-    },
-    distanceFogStrength: {
-      value: 1.0,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      label: "🏔️ Distance Fog Strength",
-    },
-    fogNear: {
-      value: 0.1,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      label: "📍 Fog Start Distance",
-    },
-    fogFar: {
-      value: 0.7,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      label: "📍 Fog End Distance",
-    },
-    fogDensity: {
-      value: 4.0,
-      min: 0.0,
-      max: 10.0,
-      step: 0.1,
-      label: "💨 Ground Fog Density",
-    },
-    fogHeight: {
-      value: 0.5,
-      min: 0.0,
-      max: 2.0,
-      step: 0.1,
-      label: "📏 Height Distribution",
-    },
-    fogColor: {
-      value: "#c8d5e8",
-      label: "🎨 Fog Color",
-    },
-    noiseScale: {
-      value: 5.0,
-      min: 1.0,
-      max: 20.0,
-      step: 0.5,
-      label: "🌊 Noise Scale",
-    },
-    noiseSpeed: {
-      value: 0.3,
-      min: 0.0,
-      max: 2.0,
-      step: 0.1,
-      label: "⚡ Animation Speed",
-    },
+      { collapsed: true }
+    ),
   });
 
   const effect = useMemo(() => {

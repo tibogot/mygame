@@ -4,7 +4,7 @@ import { useTexture, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import CustomShaderMaterial from "three-custom-shader-material";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { SpheresMaterials } from "./SpheresMaterials";
 import { WaterShaderSimple } from "./WaterShaderSimple";
 import { WaterShaderTest } from "./WaterShaderTest";
@@ -13,13 +13,16 @@ import { WaterShaderFull } from "./WaterShaderFull";
 import { WaterShaderQuickGrass } from "./WaterShaderQuickGrass";
 import { ImpostorForest } from "./ImpostorForest";
 import { GroundScatterBatched } from "./GroundScatterBatched";
+import { WavingFlag } from "./WavingFlag";
 
 interface ParkourCourseMap6Props {
   onTerrainReady?: (terrainMesh: THREE.Mesh) => void;
+  onHeightmapReady?: (getHeightFn: (x: number, z: number) => number) => void;
 }
 
 export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
   onTerrainReady,
+  onHeightmapReady,
 }) => {
   // Load mountain model for background
   const { scene: mountainScene } = useGLTF("/models/mountain.glb");
@@ -34,19 +37,10 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
   // Terrain mesh reference for ground scatter
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
 
-  useFrame((state, delta) => {
-    if (elevatorRef.current) {
-      timeRef.current += delta;
-
-      // Calculate velocity directly from the derivative of sin
-      // If position = sin(t * 0.3) * 2.5 + 2.5
-      // Then velocity = cos(t * 0.3) * 0.3 * 2.5
-      const velocityY = Math.cos(timeRef.current * 0.3) * 0.3 * 2.5;
-
-      // Use velocity-based movement for smooth physics interaction
-      elevatorRef.current.setLinvel({ x: 0, y: velocityY, z: 0 }, true);
-    }
-  });
+  // Store heightmap lookup function to pass to parent via useEffect
+  const heightmapLookupRef = useRef<((x: number, z: number) => number) | null>(
+    null
+  );
 
   // Terrain controls - NEW HEIGHTMAP TERRAIN!
   const { terrainSize, terrainHeight, terrainSegments, terrainYPosition } =
@@ -66,11 +60,11 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
         label: "Mountain Height",
       },
       terrainSegments: {
-        value: 128,
+        value: 256,
         min: 64,
-        max: 256,
+        max: 512,
         step: 32,
-        label: "Terrain Detail",
+        label: "Terrain Detail (vertices)",
       },
       terrainYPosition: {
         value: -10,
@@ -140,36 +134,41 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
 
   // Mountain ring controls
   const { mountainX, mountainY, mountainZ, mountainScale } = useControls(
-    "🏔️ Mountain Background (Map6)",
+    "🏛️ OBJECTS",
     {
-      mountainX: {
-        value: 0,
-        min: -200,
-        max: 200,
-        step: 5,
-        label: "Position X",
-      },
-      mountainY: {
-        value: -0.5,
-        min: -50,
-        max: 50,
-        step: 1,
-        label: "Position Y",
-      },
-      mountainZ: {
-        value: 0,
-        min: -200,
-        max: 200,
-        step: 5,
-        label: "Position Z",
-      },
-      mountainScale: {
-        value: 0.08,
-        min: 0.01,
-        max: 0.5,
-        step: 0.01,
-        label: "Scale",
-      },
+      mountainBackground: folder(
+        {
+          mountainX: {
+            value: 0,
+            min: -200,
+            max: 200,
+            step: 5,
+            label: "Position X",
+          },
+          mountainY: {
+            value: -0.5,
+            min: -50,
+            max: 50,
+            step: 1,
+            label: "Position Y",
+          },
+          mountainZ: {
+            value: 0,
+            min: -200,
+            max: 200,
+            step: 5,
+            label: "Position Z",
+          },
+          mountainScale: {
+            value: 0.08,
+            min: 0.01,
+            max: 0.5,
+            step: 0.01,
+            label: "Scale",
+          },
+        },
+        { collapsed: true }
+      ),
     }
   );
 
@@ -186,90 +185,6 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
     lodLowRatio,
     leavesOpacity,
     leavesAlphaTest,
-  } = useControls("🌲 InstancedMesh2 Forest (Map6)", {
-    enableForest: {
-      value: false,
-      label: "🌲 Enable Forest",
-    },
-    treeCount: {
-      value: 1000,
-      min: 100,
-      max: 5000,
-      step: 100,
-      label: "Tree Count",
-    },
-    forestMinRadius: {
-      value: 80,
-      min: 30,
-      max: 150,
-      step: 10,
-      label: "Min Radius (clear center)",
-    },
-    forestRadius: {
-      value: 200,
-      min: 50,
-      max: 300,
-      step: 10,
-      label: "Max Radius",
-    },
-    useLOD: {
-      value: true,
-      label: "🎨 Use LOD",
-    },
-    lodMidDistance: {
-      value: 100,
-      min: 30,
-      max: 200,
-      step: 5,
-      label: "🔍 LOD Mid Distance (m)",
-    },
-    lodLowDistance: {
-      value: 180,
-      min: 50,
-      max: 300,
-      step: 10,
-      label: "🔍 LOD Low Distance (m)",
-    },
-    lodMidRatio: {
-      value: 0.5,
-      min: 0.2,
-      max: 0.8,
-      step: 0.05,
-      label: "🔍 LOD Mid Detail Ratio",
-    },
-    lodLowRatio: {
-      value: 0.2,
-      min: 0.05,
-      max: 0.5,
-      step: 0.05,
-      label: "🔍 LOD Low Detail Ratio",
-    },
-    leavesOpacity: {
-      value: 1.0,
-      min: 0.3,
-      max: 1.0,
-      step: 0.05,
-      label: "🍃 Leaves Opacity",
-    },
-    leavesAlphaTest: {
-      value: 0.5,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      label: "🍃 Leaves Alpha Cutoff",
-    },
-  });
-
-  // Material spheres toggle
-  const { enableMaterialSpheres } = useControls("Material Showcase (Map5)", {
-    enableMaterialSpheres: {
-      value: false,
-      label: "🎨 Enable Material Spheres",
-    },
-  });
-
-  // Ground scatter controls
-  const {
     enableGroundScatter,
     scatterRadius,
     stoneCount,
@@ -281,105 +196,296 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
     stoneYOffset,
     fernYOffset,
     flowerYOffset,
-  } = useControls("🌿 Ground Scatter (Map6)", {
-    enableGroundScatter: {
-      value: false,
-      label: "🌿 Enable Ground Scatter",
-    },
-    scatterRadius: {
-      value: 50,
-      min: 20,
-      max: 200,
-      step: 5,
-      label: "📏 Scatter Radius (area size)",
-    },
-    stoneCount: {
-      value: 100,
-      min: 0,
-      max: 500,
-      step: 10,
-      label: "🪨 Stones",
-    },
-    stoneScale: {
-      value: 0.005,
-      min: 0.002,
-      max: 0.02,
-      step: 0.0005,
-      label: "🪨 Stone Scale (0.002-0.02 range)",
-    },
-    fernCount: {
-      value: 200,
-      min: 0,
-      max: 1000,
-      step: 50,
-      label: "🌿 Ferns",
-    },
-    fernScale: {
-      value: 0.7,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🌿 Fern Scale",
-    },
-    flowerCount: {
-      value: 300,
-      min: 0,
-      max: 1000,
-      step: 50,
-      label: "🌸 Flowers",
-    },
-    flowerScale: {
-      value: 0.1,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🌸 Flower Scale",
-    },
-    stoneYOffset: {
-      value: 0,
-      min: -1,
-      max: 1,
-      step: 0.05,
-      label: "🪨 Stone Y Offset (up/down)",
-    },
-    fernYOffset: {
-      value: -0.3,
-      min: -1,
-      max: 1,
-      step: 0.05,
-      label: "🌿 Fern Y Offset (up/down)",
-    },
-    flowerYOffset: {
-      value: 0,
-      min: -1,
-      max: 1,
-      step: 0.05,
-      label: "🌸 Flower Y Offset (up/down)",
-    },
+  } = useControls("🌿 FOLIAGE", {
+    instancedMesh2Forest: folder(
+      {
+        enableForest: {
+          value: false,
+          label: "🌲 Enable Forest",
+        },
+        treeCount: {
+          value: 1000,
+          min: 100,
+          max: 5000,
+          step: 100,
+          label: "Tree Count",
+        },
+        forestMinRadius: {
+          value: 80,
+          min: 30,
+          max: 150,
+          step: 10,
+          label: "Min Radius (clear center)",
+        },
+        forestRadius: {
+          value: 200,
+          min: 50,
+          max: 300,
+          step: 10,
+          label: "Max Radius",
+        },
+        useLOD: {
+          value: true,
+          label: "🎨 Use LOD",
+        },
+        lodMidDistance: {
+          value: 100,
+          min: 30,
+          max: 200,
+          step: 5,
+          label: "🔍 LOD Mid Distance (m)",
+        },
+        lodLowDistance: {
+          value: 180,
+          min: 50,
+          max: 300,
+          step: 10,
+          label: "🔍 LOD Low Distance (m)",
+        },
+        lodMidRatio: {
+          value: 0.5,
+          min: 0.2,
+          max: 0.8,
+          step: 0.05,
+          label: "🔍 LOD Mid Detail Ratio",
+        },
+        lodLowRatio: {
+          value: 0.2,
+          min: 0.05,
+          max: 0.5,
+          step: 0.05,
+          label: "🔍 LOD Low Detail Ratio",
+        },
+        leavesOpacity: {
+          value: 1.0,
+          min: 0.3,
+          max: 1.0,
+          step: 0.05,
+          label: "🍃 Leaves Opacity",
+        },
+        leavesAlphaTest: {
+          value: 0.5,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "🍃 Leaves Alpha Cutoff",
+        },
+      },
+      { collapsed: true }
+    ),
+    groundScatter: folder(
+      {
+        enableGroundScatter: {
+          value: false,
+          label: "🌿 Enable Ground Scatter",
+        },
+        scatterRadius: {
+          value: 50,
+          min: 20,
+          max: 200,
+          step: 5,
+          label: "📏 Scatter Radius (area size)",
+        },
+        stoneCount: {
+          value: 100,
+          min: 0,
+          max: 500,
+          step: 10,
+          label: "🪨 Stones",
+        },
+        stoneScale: {
+          value: 0.005,
+          min: 0.002,
+          max: 0.02,
+          step: 0.0005,
+          label: "🪨 Stone Scale (0.002-0.02 range)",
+        },
+        fernCount: {
+          value: 200,
+          min: 0,
+          max: 1000,
+          step: 50,
+          label: "🌿 Ferns",
+        },
+        fernScale: {
+          value: 0.7,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🌿 Fern Scale",
+        },
+        flowerCount: {
+          value: 300,
+          min: 0,
+          max: 1000,
+          step: 50,
+          label: "🌸 Flowers",
+        },
+        flowerScale: {
+          value: 0.1,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🌸 Flower Scale",
+        },
+        stoneYOffset: {
+          value: 0,
+          min: -1,
+          max: 1,
+          step: 0.05,
+          label: "🪨 Stone Y Offset (up/down)",
+        },
+        fernYOffset: {
+          value: -0.3,
+          min: -1,
+          max: 1,
+          step: 0.05,
+          label: "🌿 Fern Y Offset (up/down)",
+        },
+        flowerYOffset: {
+          value: 0,
+          min: -1,
+          max: 1,
+          step: 0.05,
+          label: "🌸 Flower Y Offset (up/down)",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
-  // Shadow test plane toggle
-  const { enableShadowTestPlane, shadowPlaneHeight, shadowPlaneSize } =
-    useControls("Shadow Test (Map6)", {
-      enableShadowTestPlane: {
-        value: false,
-        label: "🔴 Enable Shadow Test Plane",
+  // Material spheres toggle
+  const { enableMaterialSpheres } = useControls("🔍 DEBUG", {
+    materialShowcase: folder(
+      {
+        enableMaterialSpheres: {
+          value: false,
+          label: "🎨 Enable Material Spheres",
+        },
       },
-      shadowPlaneHeight: {
-        value: 6,
-        min: 1,
-        max: 20,
-        step: 0.5,
-        label: "Plane Height",
+      { collapsed: true }
+    ),
+  });
+
+  // Parkour objects toggle
+  const { enableParkour } = useControls("🏛️ OBJECTS", {
+    parkourCourse: folder(
+      {
+        enableParkour: {
+          value: false,
+          label: "Enable Parkour Objects",
+        },
       },
-      shadowPlaneSize: {
-        value: 10,
-        min: 2,
-        max: 50,
-        step: 1,
-        label: "Plane Size",
+      { collapsed: true }
+    ),
+  });
+
+  // Elevator animation - only runs when parkour is enabled
+  useFrame((state, delta) => {
+    if (enableParkour && elevatorRef.current) {
+      timeRef.current += delta;
+
+      // Calculate velocity directly from the derivative of sin
+      // If position = sin(t * 0.3) * 2.5 + 2.5
+      // Then velocity = cos(t * 0.3) * 0.3 * 2.5
+      const velocityY = Math.cos(timeRef.current * 0.3) * 0.3 * 2.5;
+
+      // Use velocity-based movement for smooth physics interaction
+      elevatorRef.current.setLinvel({ x: 0, y: velocityY, z: 0 }, true);
+    }
+  });
+
+  // Debug controls - grouped in DEBUG folder
+  const {
+    enableShadowTestPlane,
+    shadowPlaneHeight,
+    shadowPlaneSize,
+    enableDebugSpheres,
+    debugSphereCount,
+    debugSphereRadius,
+    debugSphereSize,
+    debugSpherePattern,
+    debugSphereYOffset,
+    debugSphereMode,
+  } = useControls("🔍 DEBUG", {
+    shadowTest: folder(
+      {
+        enableShadowTestPlane: {
+          value: false,
+          label: "🔴 Enable Shadow Test Plane",
+        },
+        shadowPlaneHeight: {
+          value: 6,
+          min: 1,
+          max: 20,
+          step: 0.5,
+          label: "Plane Height",
+        },
+        shadowPlaneSize: {
+          value: 10,
+          min: 2,
+          max: 50,
+          step: 1,
+          label: "Plane Size",
+        },
       },
-    });
+      { collapsed: true }
+    ),
+    debugSpheres: folder(
+      {
+        enableDebugSpheres: {
+          value: true,
+          label: "🔵 Enable Debug Spheres",
+        },
+        debugSphereMode: {
+          value: "bilinear",
+          options: {
+            "Bilinear (smooth, like grass)": "bilinear",
+            "Nearest vertex (pixel-perfect)": "nearest",
+          },
+          label: "Sampling Mode",
+        },
+        debugSpherePattern: {
+          value: "grid",
+          options: {
+            "Grid (even spacing)": "grid",
+            "Random scatter": "random",
+            "Circle pattern": "circle",
+          },
+          label: "Pattern Type",
+        },
+        debugSphereCount: {
+          value: 100,
+          min: 10,
+          max: 500,
+          step: 10,
+          label: "Sphere Count",
+        },
+        debugSphereRadius: {
+          value: 80,
+          min: 20,
+          max: 150,
+          step: 10,
+          label: "Distribution Radius",
+        },
+        debugSphereSize: {
+          value: 0.5,
+          min: 0.2,
+          max: 2.0,
+          step: 0.1,
+          label: "Sphere Size",
+        },
+        debugSphereYOffset: {
+          value: 0.25,
+          min: -2,
+          max: 2,
+          step: 0.05,
+          label: "Y Offset (up/down adjustment)",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
 
   // Water shader controls
   const {
@@ -521,8 +627,6 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
 
   // Generate heightmap terrain from terrain.png!
   const terrainGeometry = useMemo(() => {
-    console.log("🗺️ Generating heightmap terrain...");
-
     // Create plane geometry with lots of segments for detail
     const geometry = new THREE.PlaneGeometry(
       terrainSize,
@@ -564,12 +668,208 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
 
-    console.log(
-      `✅ Terrain generated: ${terrainSize}x${terrainSize}, ${terrainSegments}x${terrainSegments} segments, max height: ${terrainHeight}m`
-    );
+    // 🚀 CREATE FAST HEIGHT LOOKUP FUNCTION (O(1) - no raycasting!)
+    // Store heightmap data for quick lookups - EXACTLY like Quick_Grass does!
+    const hmWidth = canvas.width;
+    const hmHeight = canvas.height;
+    const hmData = imageData.data;
+
+    // Store actual terrain vertices for comparison/debugging
+    const terrainVertices = geometry.attributes.position.array as Float32Array;
+    const terrainSegWidth = terrainSegments + 1;
+
+    let debugLogged = false; // Closure variable for debug logging
+
+    const getHeightAt = (
+      worldX: number,
+      worldZ: number,
+      useNearestVertex = false
+    ): number => {
+      // Check for invalid input
+      if (worldX == null || worldZ == null || isNaN(worldX) || isNaN(worldZ)) {
+        console.warn(
+          `⚠️ Invalid heightmap lookup: worldX=${worldX}, worldZ=${worldZ}`
+        );
+        return terrainYPosition;
+      }
+
+      // 🎯 CORRECT MAPPING (verified by test above showing diff=0.000!)
+      // u=+X, v=+Z is the EXACT match to terrain vertices
+      const u = (worldX + terrainSize / 2) / terrainSize; // No negation
+      const v = (worldZ + terrainSize / 2) / terrainSize; // No negation
+
+      if (useNearestVertex) {
+        // NEAREST VERTEX MODE - Samples exactly like terrain mesh does
+        // This gives PIXEL-PERFECT alignment with terrain surface
+        const x = Math.round(u * (hmWidth - 1));
+        const y = Math.round(v * (hmHeight - 1));
+
+        const getPixel = (px: number, py: number) => {
+          const idx = (py * hmWidth + px) * 4;
+          return hmData[idx] / 255;
+        };
+
+        const heightNormalized = getPixel(x, y);
+        const height = heightNormalized * terrainHeight + terrainYPosition;
+        return height;
+      } else {
+        // BILINEAR INTERPOLATION MODE - Smooth placement like grass
+        // This is smoother but may not align perfectly on steep slopes
+        const x = u * (hmWidth - 1);
+        const y = v * (hmHeight - 1);
+
+        const x1 = Math.floor(x);
+        const y1 = Math.floor(y);
+        const x2 = Math.min(x1 + 1, hmWidth - 1);
+        const y2 = Math.min(y1 + 1, hmHeight - 1);
+
+        const xFrac = x - x1;
+        const yFrac = y - y1;
+
+        // Sample 4 corner pixels
+        const getPixel = (px: number, py: number) => {
+          const idx = (py * hmWidth + px) * 4;
+          return hmData[idx] / 255;
+        };
+
+        const h11 = getPixel(x1, y1);
+        const h21 = getPixel(x2, y1);
+        const h12 = getPixel(x1, y2);
+        const h22 = getPixel(x2, y2);
+
+        // Bilinear interpolation
+        const h1 = h11 * (1 - xFrac) + h21 * xFrac;
+        const h2 = h12 * (1 - xFrac) + h22 * xFrac;
+        const heightNormalized = h1 * (1 - yFrac) + h2 * yFrac;
+
+        const height = heightNormalized * terrainHeight + terrainYPosition;
+
+        return height;
+      }
+    };
+
+    // Store the lookup function in ref (don't call callback during render!)
+    heightmapLookupRef.current = getHeightAt;
 
     return geometry;
-  }, [heightmapTexture, terrainSize, terrainHeight, terrainSegments]);
+  }, [
+    heightmapTexture,
+    terrainSize,
+    terrainHeight,
+    terrainSegments,
+    terrainYPosition,
+  ]);
+
+  // Call onHeightmapReady AFTER render (not during!) to avoid React warning
+  useEffect(() => {
+    if (heightmapLookupRef.current && onHeightmapReady) {
+      onHeightmapReady(heightmapLookupRef.current);
+    }
+  }, [onHeightmapReady, terrainGeometry]); // Re-run when geometry changes
+
+  // Generate debug sphere positions using heightmap lookup
+  const debugSpherePositions = useMemo(() => {
+    if (!heightmapLookupRef.current) return [];
+
+    const positions: Array<{ x: number; y: number; z: number; color: string }> =
+      [];
+    const getHeight = heightmapLookupRef.current;
+    const useNearestVertex = debugSphereMode === "nearest";
+
+    if (debugSpherePattern === "grid") {
+      // Grid pattern - evenly spaced
+      const gridSize = Math.ceil(Math.sqrt(debugSphereCount));
+      const spacing = (debugSphereRadius * 2) / gridSize;
+
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          if (positions.length >= debugSphereCount) break;
+
+          const x = -debugSphereRadius + i * spacing + spacing / 2;
+          const z = -debugSphereRadius + j * spacing + spacing / 2;
+          const y = getHeight(x, z);
+
+          // Color based on height
+          const heightNormalized = (y - terrainYPosition) / terrainHeight;
+          const color =
+            heightNormalized < 0.25
+              ? "#00ff00" // Low - Green
+              : heightNormalized < 0.5
+              ? "#ffff00" // Mid-low - Yellow
+              : heightNormalized < 0.75
+              ? "#ff8800" // Mid-high - Orange
+              : "#ff0000"; // High - Red
+
+          positions.push({ x, y, z, color });
+        }
+        if (positions.length >= debugSphereCount) break;
+      }
+    } else if (debugSpherePattern === "random") {
+      // Random scatter
+      for (let i = 0; i < debugSphereCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * debugSphereRadius;
+        const x = Math.cos(angle) * distance;
+        const z = Math.sin(angle) * distance;
+        const y = getHeight(x, z);
+
+        // Color based on height
+        const heightNormalized = (y - terrainYPosition) / terrainHeight;
+        const color =
+          heightNormalized < 0.25
+            ? "#00ff00" // Low - Green
+            : heightNormalized < 0.5
+            ? "#ffff00" // Mid-low - Yellow
+            : heightNormalized < 0.75
+            ? "#ff8800" // Mid-high - Orange
+            : "#ff0000"; // High - Red
+
+        positions.push({ x, y, z, color });
+      }
+    } else if (debugSpherePattern === "circle") {
+      // Circle pattern - spheres arranged in concentric circles
+      const rings = 5;
+      const spheresPerRing = Math.floor(debugSphereCount / rings);
+
+      for (let ring = 0; ring < rings; ring++) {
+        const radius = ((ring + 1) / rings) * debugSphereRadius;
+        const count = spheresPerRing;
+
+        for (let i = 0; i < count; i++) {
+          if (positions.length >= debugSphereCount) break;
+
+          const angle = (i / count) * Math.PI * 2;
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+          const y = getHeight(x, z);
+
+          // Color based on height
+          const heightNormalized = (y - terrainYPosition) / terrainHeight;
+          const color =
+            heightNormalized < 0.25
+              ? "#00ff00" // Low - Green
+              : heightNormalized < 0.5
+              ? "#ffff00" // Mid-low - Yellow
+              : heightNormalized < 0.75
+              ? "#ff8800" // Mid-high - Orange
+              : "#ff0000"; // High - Red
+
+          positions.push({ x, y, z, color });
+        }
+        if (positions.length >= debugSphereCount) break;
+      }
+    }
+
+    return positions;
+  }, [
+    debugSphereCount,
+    debugSphereRadius,
+    debugSpherePattern,
+    debugSphereMode,
+    terrainHeight,
+    terrainYPosition,
+    terrainGeometry, // Regenerate when terrain changes
+  ]);
 
   // Clone and setup mountain
   const mountain = useMemo(() => {
@@ -787,738 +1087,779 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
         />
       )}
 
-      {/* LONG CONTINUOUS SLOPE - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[20, 2.5, 15]}
-        rotation={[-Math.PI / 12, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[3, 0.25, 10]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[6, 0.5, 20]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* LONG DOWNWARD SLOPE - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-20, 2.5, 15]}
-        rotation={[Math.PI / 12, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[3, 0.25, 10]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[6, 0.5, 20]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* TEST SLOPE 1 - Very gentle (5 degrees) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[15, 0.3, 5]}
-        rotation={[-Math.PI / 36, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[4, 0.4, 8]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* TEST SLOPE 2 - Gentle (10 degrees) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[15, 0.6, 15]}
-        rotation={[-Math.PI / 18, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[4, 0.4, 8]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* TEST SLOPE 3 - Medium (20 degrees) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[15, 1.2, 25]}
-        rotation={[-Math.PI / 9, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[4, 0.4, 8]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* TEST SLOPE 4 - Steep (30 degrees) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[15, 2, 35]}
-        rotation={[-Math.PI / 6, 0, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[4, 0.4, 8]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* YELLOW STAIRS - with tile texture */}
-      {[...Array(10)].map((_, i) => (
-        <RigidBody
-          key={`yellow-${i}`}
-          type="fixed"
-          colliders={false}
-          position={[10, i * 0.25 + 0.125, 6 + i * 0.5 + 0.25]}
-          friction={1}
-        >
-          <CuboidCollider
-            args={[1.5, 0.125, 0.25]}
+      {/* ========== PARKOUR COURSE - All obstacles ========== */}
+      {enableParkour && (
+        <>
+          {/* LONG CONTINUOUS SLOPE - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[20, 2.5, 15]}
+            rotation={[-Math.PI / 12, 0, 0]}
             friction={1}
+          >
+            <CuboidCollider args={[3, 0.25, 10]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[6, 0.5, 20]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* LONG DOWNWARD SLOPE - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-20, 2.5, 15]}
+            rotation={[Math.PI / 12, 0, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[3, 0.25, 10]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[6, 0.5, 20]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* TEST SLOPE 1 - Very gentle (5 degrees) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[15, 0.3, 5]}
+            rotation={[-Math.PI / 36, 0, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[4, 0.4, 8]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* TEST SLOPE 2 - Gentle (10 degrees) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[15, 0.6, 15]}
+            rotation={[-Math.PI / 18, 0, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[4, 0.4, 8]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* TEST SLOPE 3 - Medium (20 degrees) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[15, 1.2, 25]}
+            rotation={[-Math.PI / 9, 0, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[4, 0.4, 8]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* TEST SLOPE 4 - Steep (30 degrees) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[15, 2, 35]}
+            rotation={[-Math.PI / 6, 0, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[2, 0.2, 4]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[4, 0.4, 8]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* YELLOW STAIRS - with tile texture */}
+          {[...Array(10)].map((_, i) => (
+            <RigidBody
+              key={`yellow-${i}`}
+              type="fixed"
+              colliders={false}
+              position={[10, i * 0.25 + 0.125, 6 + i * 0.5 + 0.25]}
+              friction={1}
+            >
+              <CuboidCollider
+                args={[1.5, 0.125, 0.25]}
+                friction={1}
+                restitution={0}
+              />
+              <mesh castShadow receiveShadow>
+                <boxGeometry args={[3, 0.25, 0.5]} />
+                <TileMaterial />
+              </mesh>
+            </RigidBody>
+          ))}
+
+          {/* LANDING PLATFORM at top of yellow stairs - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[10, 2.5, 11.5]}
+            friction={1}
+          >
+            <CuboidCollider
+              args={[1.5, 0.15, 1]}
+              friction={1}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[3, 0.3, 2]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* BIG WALL 1 - Tall wall for jump testing (Front) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[0, 2.5, 15]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[5, 2.5, 0.25]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[10, 5, 0.5]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* BIG WALL 2 - Tall wall (Left side) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-15, 2.5, 0]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[0.25, 2.5, 5]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, 5, 10]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* BIG WALL 3 - Tall wall (Right side) - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[15, 2.5, 0]}
+            friction={0}
+          >
+            <CuboidCollider
+              args={[0.25, 2.5, 5]}
+              friction={0}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, 5, 10]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* CORNER WALL - Test corner collisions - with tile texture */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-10, 2, -5]}
+            friction={0}
+          >
+            <CuboidCollider args={[0.25, 2, 3]} friction={0} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, 4, 6]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* ========== PHYSICS CUBES - KEEP ORIGINAL COLORS ========== */}
+
+          {/* LIGHT CUBE 1 - Very easy to push (Green) - Mass: 1kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[-5, 0.5, 0]}
+            mass={1}
+            friction={0.5}
+            restitution={0.1}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#00ff00"
+                roughness={0.7}
+                metalness={0.2}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* LIGHT CUBE 2 - Very easy to push (Lime) - Mass: 1kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[-3, 0.5, 0]}
+            mass={1}
+            friction={0.5}
+            restitution={0.1}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#7fff00"
+                roughness={0.7}
+                metalness={0.2}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* MEDIUM CUBE 1 - Moderate (Yellow) - Mass: 5kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[3, 0.5, 0]}
+            mass={5}
+            friction={0.5}
+            restitution={0.1}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#ffff00"
+                roughness={0.7}
+                metalness={0.3}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* MEDIUM CUBE 2 - Moderate (Orange) - Mass: 5kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[5, 0.5, 0]}
+            mass={5}
+            friction={0.5}
+            restitution={0.1}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#ffa500"
+                roughness={0.7}
+                metalness={0.3}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* HEAVY CUBE 1 - Hard to push (Red) - Mass: 15kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[-5, 0.5, 3]}
+            mass={15}
+            friction={0.6}
+            restitution={0.05}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#ff0000"
+                roughness={0.8}
+                metalness={0.4}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* HEAVY CUBE 2 - Hard to push (Dark Red) - Mass: 15kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[-3, 0.5, 3]}
+            mass={15}
+            friction={0.6}
+            restitution={0.05}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#8b0000"
+                roughness={0.8}
+                metalness={0.4}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* VERY HEAVY CUBE - Very hard to push (Purple) - Mass: 30kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[0, 0.5, 3]}
+            mass={30}
+            friction={0.7}
             restitution={0}
-          />
-          <mesh castShadow receiveShadow>
-            <boxGeometry args={[3, 0.25, 0.5]} />
-            <TileMaterial />
-          </mesh>
-        </RigidBody>
-      ))}
-
-      {/* LANDING PLATFORM at top of yellow stairs - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[10, 2.5, 11.5]}
-        friction={1}
-      >
-        <CuboidCollider args={[1.5, 0.15, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[3, 0.3, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* BIG WALL 1 - Tall wall for jump testing (Front) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[0, 2.5, 15]}
-        friction={0}
-      >
-        <CuboidCollider args={[5, 2.5, 0.25]} friction={0} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[10, 5, 0.5]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* BIG WALL 2 - Tall wall (Left side) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-15, 2.5, 0]}
-        friction={0}
-      >
-        <CuboidCollider args={[0.25, 2.5, 5]} friction={0} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.5, 5, 10]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* BIG WALL 3 - Tall wall (Right side) - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[15, 2.5, 0]}
-        friction={0}
-      >
-        <CuboidCollider args={[0.25, 2.5, 5]} friction={0} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.5, 5, 10]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* CORNER WALL - Test corner collisions - with tile texture */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-10, 2, -5]}
-        friction={0}
-      >
-        <CuboidCollider args={[0.25, 2, 3]} friction={0} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.5, 4, 6]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* ========== PHYSICS CUBES - KEEP ORIGINAL COLORS ========== */}
-
-      {/* LIGHT CUBE 1 - Very easy to push (Green) - Mass: 1kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[-5, 0.5, 0]}
-        mass={1}
-        friction={0.5}
-        restitution={0.1}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#00ff00"
-            roughness={0.7}
-            metalness={0.2}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* LIGHT CUBE 2 - Very easy to push (Lime) - Mass: 1kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[-3, 0.5, 0]}
-        mass={1}
-        friction={0.5}
-        restitution={0.1}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#7fff00"
-            roughness={0.7}
-            metalness={0.2}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* MEDIUM CUBE 1 - Moderate (Yellow) - Mass: 5kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[3, 0.5, 0]}
-        mass={5}
-        friction={0.5}
-        restitution={0.1}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#ffff00"
-            roughness={0.7}
-            metalness={0.3}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* MEDIUM CUBE 2 - Moderate (Orange) - Mass: 5kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[5, 0.5, 0]}
-        mass={5}
-        friction={0.5}
-        restitution={0.1}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#ffa500"
-            roughness={0.7}
-            metalness={0.3}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* HEAVY CUBE 1 - Hard to push (Red) - Mass: 15kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[-5, 0.5, 3]}
-        mass={15}
-        friction={0.6}
-        restitution={0.05}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#ff0000"
-            roughness={0.8}
-            metalness={0.4}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* HEAVY CUBE 2 - Hard to push (Dark Red) - Mass: 15kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[-3, 0.5, 3]}
-        mass={15}
-        friction={0.6}
-        restitution={0.05}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#8b0000"
-            roughness={0.8}
-            metalness={0.4}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* VERY HEAVY CUBE - Very hard to push (Purple) - Mass: 30kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[0, 0.5, 3]}
-        mass={30}
-        friction={0.7}
-        restitution={0}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#8b008b"
-            roughness={0.9}
-            metalness={0.5}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* SUPER LIGHT CUBE - Flies away easily (Cyan) - Mass: 0.5kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[3, 0.5, 3]}
-        mass={0.5}
-        friction={0.3}
-        restitution={0.3}
-        linearDamping={0.3}
-        angularDamping={0.3}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#00ffff"
-            roughness={0.5}
-            metalness={0.1}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* STACK OF LIGHT CUBES - Fun to knock over - Mass: 2kg each */}
-      {[0, 1, 2].map((i) => (
-        <RigidBody
-          key={`stack-${i}`}
-          type="dynamic"
-          colliders="cuboid"
-          position={[5, 0.5 + i * 1.05, 3]}
-          mass={2}
-          friction={0.5}
-          restitution={0.1}
-          linearDamping={0.5}
-          angularDamping={0.5}
-        >
-          <mesh castShadow receiveShadow>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial
-              color={i === 0 ? "#90ee90" : i === 1 ? "#98fb98" : "#adff2f"}
-              roughness={0.7}
-              metalness={0.2}
-            />
-          </mesh>
-        </RigidBody>
-      ))}
-
-      {/* LARGE HEAVY BOX - Like a crate (Brown) - Mass: 50kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[-7, 0.75, 6]}
-        mass={50}
-        friction={0.8}
-        restitution={0}
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1.5, 1.5, 1.5]} />
-          <meshStandardMaterial
-            color="#8b4513"
-            roughness={0.9}
-            metalness={0.1}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* TINY LIGHT CUBE - Kicks far (White) - Mass: 0.2kg */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[7, 0.25, 2]}
-        mass={0.2}
-        friction={0.2}
-        restitution={0.5}
-        linearDamping={0.2}
-        angularDamping={0.2}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.5, 0.5, 0.5]} />
-          <meshStandardMaterial
-            color="#ffffff"
-            roughness={0.4}
-            metalness={0.1}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* DEBUG TEST CUBE - Heavy, no rotation (Black) - Mass: 40kg - For testing jump hang issue */}
-      <RigidBody
-        type="dynamic"
-        colliders="cuboid"
-        position={[0, 0.5, -3]}
-        mass={40}
-        friction={0.5}
-        restitution={0}
-        lockRotations
-        linearDamping={0.5}
-        angularDamping={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            color="#000000"
-            roughness={0.9}
-            metalness={0.1}
-          />
-        </mesh>
-      </RigidBody>
-
-      {/* ========== DECORATIVE STEPS - WITH CUBOID COLLIDERS ========== */}
-
-      {/* STEP 0 - Extra small height */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-8, 0.05, -6]}
-        friction={1}
-      >
-        <CuboidCollider args={[1, 0.05, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[2, 0.1, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* STEP 1 - Smallest height */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-8, 0.1, -3]}
-        friction={1}
-      >
-        <CuboidCollider args={[1, 0.1, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[2, 0.2, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* STEP 2 - Medium-low height */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-8, 0.2, 0]}
-        friction={1}
-      >
-        <CuboidCollider args={[1, 0.2, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[2, 0.4, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* STEP 3 - Medium-high height */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-8, 0.3, 3]}
-        friction={1}
-      >
-        <CuboidCollider args={[1, 0.3, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[2, 0.6, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* STEP 4 - Tallest height */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-8, 0.4, 6]}
-        friction={1}
-      >
-        <CuboidCollider args={[1, 0.4, 1]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[2, 0.8, 2]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* ========== MINI STAIRCASE - 0.1 unit increments ========== */}
-      {[...Array(25)].map((_, i) => (
-        <RigidBody
-          key={`mini-step-${i}`}
-          type="fixed"
-          colliders={false}
-          position={[5, i * 0.1 + 0.05, -8 + i * 0.3]}
-          friction={1}
-        >
-          <CuboidCollider args={[1, 0.05, 0.15]} friction={1} restitution={0} />
-          <mesh castShadow receiveShadow>
-            <boxGeometry args={[2, 0.1, 0.3]} />
-            <TileMaterial />
-          </mesh>
-        </RigidBody>
-      ))}
-
-      {/* ========== ELEVATOR - Moves up and down ========== */}
-      <RigidBody
-        ref={elevatorRef}
-        type="kinematicVelocity"
-        colliders={false}
-        position={[-15, 2.5, -10]}
-        friction={2}
-        restitution={0}
-      >
-        <CuboidCollider args={[1.5, 0.15, 1.5]} friction={2} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[3, 0.3, 3]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
-
-      {/* ========== CROUCH OBSTACLES - LOW BARRIERS ========== */}
-      {/* Barrier bars - HORIZONTAL with hull collision (can duck under) */}
-      {[25, 28, 31, 34].map((z, i) => (
-        <RigidBody
-          key={`barrier-bar-${i}`}
-          type="fixed"
-          colliders="hull"
-          position={[-25, 1.2, z]}
-          friction={0}
-        >
-          <mesh castShadow receiveShadow rotation={[0, Math.PI / 2, 0]}>
-            <boxGeometry args={[0.15, 0.15, 4.4]} />
-            <meshStandardMaterial
-              color="#ffaa00"
-              roughness={0.3}
-              metalness={0.7}
-            />
-          </mesh>
-        </RigidBody>
-      ))}
-
-      {/* Side posts for barriers - THESE have collision */}
-      {[25, 28, 31, 34].map((z, i) => (
-        <group key={`barrier-posts-${i}`}>
-          {/* Left post */}
-          <RigidBody type="fixed" colliders="cuboid" position={[-27.2, 0.7, z]}>
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
             <mesh castShadow receiveShadow>
-              <boxGeometry args={[0.2, 1.4, 0.2]} />
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#8b008b"
+                roughness={0.9}
+                metalness={0.5}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* SUPER LIGHT CUBE - Flies away easily (Cyan) - Mass: 0.5kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[3, 0.5, 3]}
+            mass={0.5}
+            friction={0.3}
+            restitution={0.3}
+            linearDamping={0.3}
+            angularDamping={0.3}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#00ffff"
+                roughness={0.5}
+                metalness={0.1}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* STACK OF LIGHT CUBES - Fun to knock over - Mass: 2kg each */}
+          {[0, 1, 2].map((i) => (
+            <RigidBody
+              key={`stack-${i}`}
+              type="dynamic"
+              colliders="cuboid"
+              position={[5, 0.5 + i * 1.05, 3]}
+              mass={2}
+              friction={0.5}
+              restitution={0.1}
+              linearDamping={0.5}
+              angularDamping={0.5}
+            >
+              <mesh castShadow receiveShadow>
+                <boxGeometry args={[1, 1, 1]} />
+                <meshStandardMaterial
+                  color={i === 0 ? "#90ee90" : i === 1 ? "#98fb98" : "#adff2f"}
+                  roughness={0.7}
+                  metalness={0.2}
+                />
+              </mesh>
+            </RigidBody>
+          ))}
+
+          {/* LARGE HEAVY BOX - Like a crate (Brown) - Mass: 50kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[-7, 0.75, 6]}
+            mass={50}
+            friction={0.8}
+            restitution={0}
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1.5, 1.5, 1.5]} />
+              <meshStandardMaterial
+                color="#8b4513"
+                roughness={0.9}
+                metalness={0.1}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* TINY LIGHT CUBE - Kicks far (White) - Mass: 0.2kg */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[7, 0.25, 2]}
+            mass={0.2}
+            friction={0.2}
+            restitution={0.5}
+            linearDamping={0.2}
+            angularDamping={0.2}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.5, 0.5, 0.5]} />
+              <meshStandardMaterial
+                color="#ffffff"
+                roughness={0.4}
+                metalness={0.1}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* DEBUG TEST CUBE - Heavy, no rotation (Black) - Mass: 40kg - For testing jump hang issue */}
+          <RigidBody
+            type="dynamic"
+            colliders="cuboid"
+            position={[0, 0.5, -3]}
+            mass={40}
+            friction={0.5}
+            restitution={0}
+            lockRotations
+            linearDamping={0.5}
+            angularDamping={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                color="#000000"
+                roughness={0.9}
+                metalness={0.1}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* ========== DECORATIVE STEPS - WITH CUBOID COLLIDERS ========== */}
+
+          {/* STEP 0 - Extra small height */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-8, 0.05, -6]}
+            friction={1}
+          >
+            <CuboidCollider args={[1, 0.05, 1]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[2, 0.1, 2]} />
               <TileMaterial />
             </mesh>
           </RigidBody>
-          {/* Right post */}
-          <RigidBody type="fixed" colliders="cuboid" position={[-22.8, 0.7, z]}>
+
+          {/* STEP 1 - Smallest height */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-8, 0.1, -3]}
+            friction={1}
+          >
+            <CuboidCollider args={[1, 0.1, 1]} friction={1} restitution={0} />
             <mesh castShadow receiveShadow>
-              <boxGeometry args={[0.2, 1.4, 0.2]} />
+              <boxGeometry args={[2, 0.2, 2]} />
               <TileMaterial />
             </mesh>
           </RigidBody>
-        </group>
-      ))}
 
-      {/* ========== NARROW BALANCE BEAM ========== */}
-      {/* Elevated beam - 0.4m wide, 10m long, 1.5m high - Only top surface has collision */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[25, 1.5, -25]}
-        friction={1}
-      >
-        <CuboidCollider args={[0.2, 0.1, 5]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.4, 0.2, 10]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
+          {/* STEP 2 - Medium-low height */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-8, 0.2, 0]}
+            friction={1}
+          >
+            <CuboidCollider args={[1, 0.2, 1]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[2, 0.4, 2]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
 
-      {/* Support pillars for beam */}
-      <mesh castShadow receiveShadow position={[25, 0.75, -30]}>
-        <boxGeometry args={[0.6, 1.5, 0.6]} />
-        <TileMaterial />
-      </mesh>
-      <mesh castShadow receiveShadow position={[25, 0.75, -25]}>
-        <boxGeometry args={[0.6, 1.5, 0.6]} />
-        <TileMaterial />
-      </mesh>
-      <mesh castShadow receiveShadow position={[25, 0.75, -20]}>
-        <boxGeometry args={[0.6, 1.5, 0.6]} />
-        <TileMaterial />
-      </mesh>
+          {/* STEP 3 - Medium-high height */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-8, 0.3, 3]}
+            friction={1}
+          >
+            <CuboidCollider args={[1, 0.3, 1]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[2, 0.6, 2]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
 
-      {/* ========== CROUCH TUNNEL (CYLINDER) ========== */}
-      {/* Main tunnel cylinder - WITH TRIMESH COLLISION (walkable inside!) */}
-      <RigidBody
-        type="fixed"
-        colliders="trimesh"
-        position={[25, 0.8, 25]}
-        rotation={[0, 0, Math.PI / 2]}
-        friction={0.5}
-      >
-        <mesh castShadow receiveShadow>
-          <cylinderGeometry args={[1.0, 1.0, 10, 24, 1, true]} />
-          <meshStandardMaterial
-            color="#888888"
-            roughness={0.8}
-            metalness={0.3}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      </RigidBody>
+          {/* STEP 4 - Tallest height */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-8, 0.4, 6]}
+            friction={1}
+          >
+            <CuboidCollider args={[1, 0.4, 1]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[2, 0.8, 2]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
 
-      {/* ========== LOW BRIDGE (Test Forced Crouch) ========== */}
-      {/* Bridge deck - walkable surface */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[-30, 1.5, -30]}
-        friction={1}
-      >
-        <CuboidCollider args={[3, 0.15, 2]} friction={1} restitution={0} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[6, 0.3, 4]} />
-          <TileMaterial />
-        </mesh>
-      </RigidBody>
+          {/* ========== MINI STAIRCASE - 0.1 unit increments ========== */}
+          {[...Array(25)].map((_, i) => (
+            <RigidBody
+              key={`mini-step-${i}`}
+              type="fixed"
+              colliders={false}
+              position={[5, i * 0.1 + 0.05, -8 + i * 0.3]}
+              friction={1}
+            >
+              <CuboidCollider
+                args={[1, 0.05, 0.15]}
+                friction={1}
+                restitution={0}
+              />
+              <mesh castShadow receiveShadow>
+                <boxGeometry args={[2, 0.1, 0.3]} />
+                <TileMaterial />
+              </mesh>
+            </RigidBody>
+          ))}
 
-      {/* Bridge ceiling - LOW (1.3m clearance, forces crouch) */}
-      <RigidBody
-        type="fixed"
-        colliders="hull"
-        position={[-30, 2.6, -30]}
-        friction={0}
-      >
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[6, 0.2, 4]} />
-          <meshStandardMaterial
-            color="#6b5d4f"
-            roughness={0.9}
-            metalness={0.1}
-          />
-        </mesh>
-      </RigidBody>
+          {/* ========== ELEVATOR - Moves up and down ========== */}
+          <RigidBody
+            ref={elevatorRef}
+            type="kinematicVelocity"
+            colliders={false}
+            position={[-15, 2.5, -10]}
+            friction={2}
+            restitution={0}
+          >
+            <CuboidCollider
+              args={[1.5, 0.15, 1.5]}
+              friction={2}
+              restitution={0}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[3, 0.3, 3]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
 
-      {/* Bridge support pillars */}
-      <mesh castShadow receiveShadow position={[-33, 0.75, -32]}>
-        <boxGeometry args={[0.4, 1.5, 0.4]} />
-        <TileMaterial />
-      </mesh>
-      <mesh castShadow receiveShadow position={[-27, 0.75, -32]}>
-        <boxGeometry args={[0.4, 1.5, 0.4]} />
-        <TileMaterial />
-      </mesh>
-      <mesh castShadow receiveShadow position={[-33, 0.75, -28]}>
-        <boxGeometry args={[0.4, 1.5, 0.4]} />
-        <TileMaterial />
-      </mesh>
-      <mesh castShadow receiveShadow position={[-27, 0.75, -28]}>
-        <boxGeometry args={[0.4, 1.5, 0.4]} />
-        <TileMaterial />
-      </mesh>
+          {/* ========== CROUCH OBSTACLES - LOW BARRIERS ========== */}
+          {/* Barrier bars - HORIZONTAL with hull collision (can duck under) */}
+          {[25, 28, 31, 34].map((z, i) => (
+            <RigidBody
+              key={`barrier-bar-${i}`}
+              type="fixed"
+              colliders="hull"
+              position={[-25, 1.2, z]}
+              friction={0}
+            >
+              <mesh castShadow receiveShadow rotation={[0, Math.PI / 2, 0]}>
+                <boxGeometry args={[0.15, 0.15, 4.4]} />
+                <meshStandardMaterial
+                  color="#ffaa00"
+                  roughness={0.3}
+                  metalness={0.7}
+                />
+              </mesh>
+            </RigidBody>
+          ))}
 
-      {/* ========== TRAMPOLINE / BOUNCE PAD ========== */}
-      {/* Trampoline surface - HIGH restitution for bounce */}
-      <RigidBody
-        type="fixed"
-        colliders={false}
-        position={[30, 0.3, -20]}
-        friction={0.5}
-        restitution={2.5}
-      >
-        <CuboidCollider
-          args={[1.5, 0.15, 1.5]}
-          friction={0.5}
-          restitution={2.5}
-        />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[3, 0.3, 3]} />
-          <meshStandardMaterial
-            color="#00ff88"
-            roughness={0.3}
-            metalness={0.1}
-            emissive="#00ff88"
-            emissiveIntensity={0.2}
-          />
-        </mesh>
-      </RigidBody>
+          {/* Side posts for barriers - THESE have collision */}
+          {[25, 28, 31, 34].map((z, i) => (
+            <group key={`barrier-posts-${i}`}>
+              {/* Left post */}
+              <RigidBody
+                type="fixed"
+                colliders="cuboid"
+                position={[-27.2, 0.7, z]}
+              >
+                <mesh castShadow receiveShadow>
+                  <boxGeometry args={[0.2, 1.4, 0.2]} />
+                  <TileMaterial />
+                </mesh>
+              </RigidBody>
+              {/* Right post */}
+              <RigidBody
+                type="fixed"
+                colliders="cuboid"
+                position={[-22.8, 0.7, z]}
+              >
+                <mesh castShadow receiveShadow>
+                  <boxGeometry args={[0.2, 1.4, 0.2]} />
+                  <TileMaterial />
+                </mesh>
+              </RigidBody>
+            </group>
+          ))}
 
-      {/* Trampoline frame */}
-      <mesh castShadow receiveShadow position={[30, 0.1, -20]}>
-        <boxGeometry args={[3.4, 0.2, 3.4]} />
-        <meshStandardMaterial color="#333333" roughness={0.8} metalness={0.3} />
-      </mesh>
+          {/* ========== NARROW BALANCE BEAM ========== */}
+          {/* Elevated beam - 0.4m wide, 10m long, 1.5m high - Only top surface has collision */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[25, 1.5, -25]}
+            friction={1}
+          >
+            <CuboidCollider args={[0.2, 0.1, 5]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[0.4, 0.2, 10]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
 
-      {/* Trampoline support legs */}
-      {[
-        [28.5, -21.5],
-        [31.5, -21.5],
-        [28.5, -18.5],
-        [31.5, -18.5],
-      ].map(([x, z], i) => (
-        <mesh key={`trampoline-leg-${i}`} position={[x, -0.1, z]}>
-          <cylinderGeometry args={[0.1, 0.15, 0.4, 8]} />
-          <meshStandardMaterial
-            color="#333333"
-            roughness={0.8}
-            metalness={0.3}
-          />
-        </mesh>
-      ))}
+          {/* Support pillars for beam */}
+          <mesh castShadow receiveShadow position={[25, 0.75, -30]}>
+            <boxGeometry args={[0.6, 1.5, 0.6]} />
+            <TileMaterial />
+          </mesh>
+          <mesh castShadow receiveShadow position={[25, 0.75, -25]}>
+            <boxGeometry args={[0.6, 1.5, 0.6]} />
+            <TileMaterial />
+          </mesh>
+          <mesh castShadow receiveShadow position={[25, 0.75, -20]}>
+            <boxGeometry args={[0.6, 1.5, 0.6]} />
+            <TileMaterial />
+          </mesh>
+
+          {/* ========== CROUCH TUNNEL (CYLINDER) ========== */}
+          {/* Main tunnel cylinder - WITH TRIMESH COLLISION (walkable inside!) */}
+          <RigidBody
+            type="fixed"
+            colliders="trimesh"
+            position={[25, 0.8, 25]}
+            rotation={[0, 0, Math.PI / 2]}
+            friction={0.5}
+          >
+            <mesh castShadow receiveShadow>
+              <cylinderGeometry args={[1.0, 1.0, 10, 24, 1, true]} />
+              <meshStandardMaterial
+                color="#888888"
+                roughness={0.8}
+                metalness={0.3}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* ========== LOW BRIDGE (Test Forced Crouch) ========== */}
+          {/* Bridge deck - walkable surface */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[-30, 1.5, -30]}
+            friction={1}
+          >
+            <CuboidCollider args={[3, 0.15, 2]} friction={1} restitution={0} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[6, 0.3, 4]} />
+              <TileMaterial />
+            </mesh>
+          </RigidBody>
+
+          {/* Bridge ceiling - LOW (1.3m clearance, forces crouch) */}
+          <RigidBody
+            type="fixed"
+            colliders="hull"
+            position={[-30, 2.6, -30]}
+            friction={0}
+          >
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[6, 0.2, 4]} />
+              <meshStandardMaterial
+                color="#6b5d4f"
+                roughness={0.9}
+                metalness={0.1}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* Bridge support pillars */}
+          <mesh castShadow receiveShadow position={[-33, 0.75, -32]}>
+            <boxGeometry args={[0.4, 1.5, 0.4]} />
+            <TileMaterial />
+          </mesh>
+          <mesh castShadow receiveShadow position={[-27, 0.75, -32]}>
+            <boxGeometry args={[0.4, 1.5, 0.4]} />
+            <TileMaterial />
+          </mesh>
+          <mesh castShadow receiveShadow position={[-33, 0.75, -28]}>
+            <boxGeometry args={[0.4, 1.5, 0.4]} />
+            <TileMaterial />
+          </mesh>
+          <mesh castShadow receiveShadow position={[-27, 0.75, -28]}>
+            <boxGeometry args={[0.4, 1.5, 0.4]} />
+            <TileMaterial />
+          </mesh>
+
+          {/* ========== TRAMPOLINE / BOUNCE PAD ========== */}
+          {/* Trampoline surface - HIGH restitution for bounce */}
+          <RigidBody
+            type="fixed"
+            colliders={false}
+            position={[30, 0.3, -20]}
+            friction={0.5}
+            restitution={2.5}
+          >
+            <CuboidCollider
+              args={[1.5, 0.15, 1.5]}
+              friction={0.5}
+              restitution={2.5}
+            />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[3, 0.3, 3]} />
+              <meshStandardMaterial
+                color="#00ff88"
+                roughness={0.3}
+                metalness={0.1}
+                emissive="#00ff88"
+                emissiveIntensity={0.2}
+              />
+            </mesh>
+          </RigidBody>
+
+          {/* Trampoline frame */}
+          <mesh castShadow receiveShadow position={[30, 0.1, -20]}>
+            <boxGeometry args={[3.4, 0.2, 3.4]} />
+            <meshStandardMaterial
+              color="#333333"
+              roughness={0.8}
+              metalness={0.3}
+            />
+          </mesh>
+
+          {/* Trampoline support legs */}
+          {[
+            [28.5, -21.5],
+            [31.5, -21.5],
+            [28.5, -18.5],
+            [31.5, -18.5],
+          ].map(([x, z], i) => (
+            <mesh key={`trampoline-leg-${i}`} position={[x, -0.1, z]}>
+              <cylinderGeometry args={[0.1, 0.15, 0.4, 8]} />
+              <meshStandardMaterial
+                color="#333333"
+                roughness={0.8}
+                metalness={0.3}
+              />
+            </mesh>
+          ))}
+        </>
+      )}
 
       {/* ========== MATERIAL SHOWCASE SPHERES ========== */}
       {enableMaterialSpheres && <SpheresMaterials />}
@@ -1696,6 +2037,34 @@ export const ParkourCourseMap6: React.FC<ParkourCourseMap6Props> = ({
             </RigidBody>
           ))}
         </group>
+      )}
+
+      {/* ========== DEBUG SPHERES - Validate heightmap placement ========== */}
+      {enableDebugSpheres &&
+        debugSpherePositions.map((pos, i) => (
+          <mesh
+            key={`debug-sphere-${i}`}
+            position={[pos.x, pos.y + debugSphereYOffset, pos.z]}
+            castShadow
+          >
+            <sphereGeometry args={[debugSphereSize, 16, 16]} />
+            <meshStandardMaterial
+              color={pos.color}
+              roughness={0.4}
+              metalness={0.6}
+              emissive={pos.color}
+              emissiveIntensity={0.3}
+            />
+          </mesh>
+        ))}
+
+      {/* ========== WAVING FLAG - Wind-animated flag on terrain ========== */}
+      {heightmapLookupRef.current && (
+        <WavingFlag
+          position={[40, 0, -20]}
+          size={[6, 4]}
+          getGroundHeight={heightmapLookupRef.current}
+        />
       )}
     </group>
   );

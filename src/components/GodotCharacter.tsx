@@ -1,7 +1,7 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
 import React, { useEffect, useRef, useMemo } from "react";
 import { useFrame, useGraph } from "@react-three/fiber";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 
@@ -27,68 +27,44 @@ export function GodotCharacter({ animation, ...props }: GodotCharacterProps) {
 
   // Character controls
   const { yPosition, showDebug, characterScaleDisplay } = useControls(
-    "Godot Character",
+    "🎮 GODOT CHARACTER",
     {
-      yPosition: {
-        value: -0.99,
-        min: -2,
-        max: 2,
-        step: 0.01,
-        label: "Feet Position - Align feet with capsule bottom",
-      },
-      characterScaleDisplay: {
-        value: 1,
-        min: 0.1,
-        max: 5,
-        step: 0.1,
-        label: "Character Visual Scale (1 = realistic)",
-      },
-      showDebug: {
-        value: false,
-        label: "Show Alignment Markers (Orange=Ground)",
-      },
+      characterVisuals: folder(
+        {
+          yPosition: {
+            value: -0.99,
+            min: -2,
+            max: 2,
+            step: 0.01,
+            label: "Feet Position - Align feet with capsule bottom",
+          },
+          characterScaleDisplay: {
+            value: 1,
+            min: 0.1,
+            max: 5,
+            step: 0.1,
+            label: "Character Visual Scale (1 = realistic)",
+          },
+          showDebug: {
+            value: false,
+            label: "Show Alignment Markers (Orange=Ground)",
+          },
+        },
+        { collapsed: true }
+      ),
     }
   );
 
   // Use the character scale directly (no conversion needed)
   const characterScale = characterScaleDisplay;
 
-  // Log available animations and nodes once
+  // Validate character setup once
   useEffect(() => {
-    console.log("=== GODOT CHARACTER INFO ===");
-    console.log("Character scale:", characterScaleDisplay);
-    console.log("Character yPosition:", yPosition);
-
     // Check character bounding box for real-world size
     if (nodes.Mannequin_1) {
       nodes.Mannequin_1.geometry.computeBoundingBox();
-      const bbox = nodes.Mannequin_1.geometry.boundingBox;
-      if (bbox) {
-        const height = (bbox.max.y - bbox.min.y) * characterScaleDisplay;
-        const width = (bbox.max.x - bbox.min.x) * characterScaleDisplay;
-        console.log(
-          `Character mesh dimensions at scale ${characterScaleDisplay}:`
-        );
-        console.log(`  Height: ${height.toFixed(2)}m`);
-        console.log(`  Width: ${width.toFixed(2)}m`);
-        console.log(`  Expected: Human ~1.7-1.8m tall, ~0.5m wide`);
-        if (height < 1.5 || height > 2.0) {
-          console.warn(
-            `⚠️ Character height ${height.toFixed(
-              2
-            )}m is NOT realistic! Adjust scale.`
-          );
-        } else {
-          console.log(`✅ Character height is realistic!`);
-        }
-      }
     }
-
-    console.log(
-      "Available animations:",
-      animations.map((anim) => anim.name)
-    );
-  }, [animations, nodes, characterScaleDisplay, yPosition]);
+  }, [nodes]);
 
   // Animation mapping - map our animation names to Godot animation names
   const animationMap: { [key: string]: string } = {
@@ -124,10 +100,6 @@ export function GodotCharacter({ animation, ...props }: GodotCharacterProps) {
     if (actions && animation && animationGroup.current) {
       const mappedAnimation = animationMap[animation] || animationMap.idle;
 
-      console.log(
-        `Godot Animation requested: ${animation} -> ${mappedAnimation}`
-      );
-
       if (currentAnimationRef.current !== mappedAnimation) {
         const previousAction = currentAnimationRef.current
           ? actions[currentAnimationRef.current]
@@ -135,8 +107,6 @@ export function GodotCharacter({ animation, ...props }: GodotCharacterProps) {
         const nextAction = actions[mappedAnimation];
 
         if (nextAction) {
-          console.log(`Playing animation: ${mappedAnimation}`);
-
           // If there was a previous animation, fade it out
           if (previousAction) {
             previousAction.fadeOut(0.2);
@@ -152,10 +122,8 @@ export function GodotCharacter({ animation, ...props }: GodotCharacterProps) {
 
           currentAnimationRef.current = mappedAnimation;
         } else {
-          console.warn(`Animation ${mappedAnimation} not found!`);
           // Fallback to Idle_Loop if mapping doesn't exist
           if (actions["Idle_Loop"]) {
-            console.log("Falling back to Idle_Loop");
             if (previousAction) {
               previousAction.fadeOut(0.2);
             }

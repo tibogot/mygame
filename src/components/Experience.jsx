@@ -6,7 +6,7 @@ import {
   useProgress,
 } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { useRef, useState, Suspense, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -21,6 +21,8 @@ import { SimonDevGrass9 } from "./SimonDevGrass9";
 import { SimonDevGrass10 } from "./SimonDevGrass10";
 import { SimonDevGrass11 } from "./SimonDevGrass11";
 import { SSAOEffect } from "./SSAOEffect";
+import { VolumetricFog } from "./VolumetricFog";
+import { AtmosphericFog } from "./AtmosphericFog";
 import { AOTestObjects } from "./AOTestObjects";
 import { Map } from "./Map";
 import { PlaneMap } from "./PlaneMap";
@@ -112,28 +114,20 @@ export const Experience = () => {
   const [enableScatter, setEnableScatter] = useState(false);
   const [bvhCollider, setBVHCollider] = useState(null);
   const [terrainMesh, setTerrainMesh] = useState(null); // Map6 terrain for deer
+  const [heightmapLookup, setHeightmapLookup] = useState(null); // Map6 heightmap O(1) lookup
 
-  // Terrain height getter for Map6 grass/effects - STABLE with useCallback!
+  // Terrain height getter for Map6 grass/effects - FAST O(1) HEIGHTMAP LOOKUP!
+  // 🚀 NO MORE RAYCASTING - Direct array lookup like Quick_Grass!
   const getTerrainHeight = useCallback(
     (x, z) => {
-      if (!terrainMesh) return 0;
-
-      // Raycast from above to find terrain height
-      const raycaster = new THREE.Raycaster();
-      const origin = new THREE.Vector3(x, 100, z);
-      const direction = new THREE.Vector3(0, -1, 0);
-
-      raycaster.set(origin, direction);
-      const intersects = raycaster.intersectObject(terrainMesh, false);
-
-      if (intersects.length > 0) {
-        return intersects[0].point.y;
+      if (heightmapLookup) {
+        // Use fast O(1) heightmap lookup - THOUSANDS of times faster than raycasting!
+        return heightmapLookup(x, z);
       }
-
       return 0;
     },
-    [terrainMesh]
-  ); // Only changes when terrain mesh changes!
+    [heightmapLookup]
+  ); // Only changes when heightmap lookup function changes!
 
   const { map } = useControls("Map", {
     map: {
@@ -157,35 +151,6 @@ export const Experience = () => {
     envPreset,
     backgroundIntensity,
     environmentIntensity,
-  } = useControls("Environment", {
-    environmentType: {
-      value: "hdri",
-      options: {
-        "Custom HDRI": "hdri",
-        Preset: "preset",
-        None: "none",
-      },
-    },
-    envPreset: {
-      value: "sunset",
-      options: [
-        "sunset",
-        "dawn",
-        "night",
-        "warehouse",
-        "forest",
-        "apartment",
-        "studio",
-        "city",
-        "park",
-        "lobby",
-      ],
-    },
-    backgroundIntensity: { value: 0.5, min: 0, max: 2, step: 0.1 },
-    environmentIntensity: { value: 1, min: 0, max: 2, step: 0.1 },
-  });
-
-  const {
     sunIntensity,
     sunColor,
     sunPositionX,
@@ -196,88 +161,145 @@ export const Experience = () => {
     shadowBias,
     shadowRadius,
     shadowNormalBias,
-  } = useControls("Sun Light", {
-    sunIntensity: { value: 3.5, min: 0, max: 5, step: 0.1, label: "Intensity" },
-    sunColor: { value: "#fffaed", label: "Color" },
-    sunPositionX: {
-      value: -30,
-      min: -100,
-      max: 100,
-      step: 1,
-      label: "Position X",
-    },
-    sunPositionY: {
-      value: 60,
-      min: 10,
-      max: 100,
-      step: 1,
-      label: "Position Y",
-    },
-    sunPositionZ: {
-      value: 40,
-      min: -100,
-      max: 100,
-      step: 1,
-      label: "Position Z",
-    },
-    shadowMapSize: {
-      value: 2048,
-      options: [512, 1024, 2048, 4096],
-      label: "Shadow Quality",
-    },
-    shadowCameraSize: {
-      value: 30,
-      min: 10,
-      max: 200,
-      step: 10,
-      label: "Shadow Area",
-    },
-    shadowBias: {
-      value: -0.0001,
-      min: -0.001,
-      max: 0,
-      step: 0.00001,
-      label: "Shadow Bias",
-    },
-    shadowRadius: {
-      value: 4,
-      min: 1,
-      max: 10,
-      step: 0.5,
-      label: "Shadow Smoothness (Higher = Softer)",
-    },
-    shadowNormalBias: {
-      value: 0.02,
-      min: 0,
-      max: 0.1,
-      step: 0.005,
-      label: "Normal Bias (Fixes Vertical Surfaces)",
-    },
+    followCharacter,
+    ambientIntensity,
+    ambientColor,
+  } = useControls("💡 LIGHTS", {
+    environment: folder(
+      {
+        environmentType: {
+          value: "hdri",
+          options: {
+            "Custom HDRI": "hdri",
+            Preset: "preset",
+            None: "none",
+          },
+        },
+        envPreset: {
+          value: "sunset",
+          options: [
+            "sunset",
+            "dawn",
+            "night",
+            "warehouse",
+            "forest",
+            "apartment",
+            "studio",
+            "city",
+            "park",
+            "lobby",
+          ],
+        },
+        backgroundIntensity: { value: 0.5, min: 0, max: 2, step: 0.1 },
+        environmentIntensity: { value: 1, min: 0, max: 2, step: 0.1 },
+      },
+      { collapsed: true }
+    ),
+    sunLight: folder(
+      {
+        sunIntensity: {
+          value: 3.5,
+          min: 0,
+          max: 5,
+          step: 0.1,
+          label: "Intensity",
+        },
+        sunColor: { value: "#fffaed", label: "Color" },
+        sunPositionX: {
+          value: -30,
+          min: -100,
+          max: 100,
+          step: 1,
+          label: "Position X",
+        },
+        sunPositionY: {
+          value: 60,
+          min: 10,
+          max: 100,
+          step: 1,
+          label: "Position Y",
+        },
+        sunPositionZ: {
+          value: 40,
+          min: -100,
+          max: 100,
+          step: 1,
+          label: "Position Z",
+        },
+        followCharacter: {
+          value: true,
+          label: "Follow Character (Better Shadows)",
+        },
+        shadowMapSize: {
+          value: 2048,
+          options: [512, 1024, 2048, 4096],
+          label: "Shadow Quality",
+        },
+        shadowCameraSize: {
+          value: 30,
+          min: 10,
+          max: 200,
+          step: 10,
+          label: "Shadow Area",
+        },
+        shadowBias: {
+          value: -0.0001,
+          min: -0.001,
+          max: 0,
+          step: 0.00001,
+          label: "Shadow Bias",
+        },
+        shadowRadius: {
+          value: 4,
+          min: 1,
+          max: 10,
+          step: 0.5,
+          label: "Shadow Smoothness (Higher = Softer)",
+        },
+        shadowNormalBias: {
+          value: 0.02,
+          min: 0,
+          max: 0.1,
+          step: 0.005,
+          label: "Normal Bias (Fixes Vertical Surfaces)",
+        },
+      },
+      { collapsed: true }
+    ),
+    ambientLight: folder(
+      {
+        ambientIntensity: {
+          value: 0.6,
+          min: 0,
+          max: 2,
+          step: 0.1,
+          label: "Intensity",
+        },
+        ambientColor: { value: "#b3d9ff", label: "Color" },
+      },
+      { collapsed: true }
+    ),
   });
 
-  const { ambientIntensity, ambientColor } = useControls("Ambient Light", {
-    ambientIntensity: {
-      value: 0.6,
-      min: 0,
-      max: 2,
-      step: 0.1,
-      label: "Intensity",
-    },
-    ambientColor: { value: "#b3d9ff", label: "Color" },
-  });
-
-  const { followCharacter } = useControls("Sun Light", {
-    followCharacter: {
-      value: true,
-      label: "Follow Character (Better Shadows)",
-    },
-  });
-
-  const { enableGroundScatter } = useControls("Ground Scatter Toggle", {
-    enableGroundScatter: {
-      value: false,
-      label: "🌿 Enable Ground Scatter",
-    },
+  const { enableGroundScatter, showPhysicsDebug } = useControls("🔍 DEBUG", {
+    groundScatter: folder(
+      {
+        enableGroundScatter: {
+          value: false,
+          label: "🌿 Enable Ground Scatter",
+        },
+      },
+      { collapsed: true }
+    ),
+    physics: folder(
+      {
+        showPhysicsDebug: {
+          value: false,
+          label: "🔍 Show Physics Meshes",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   const {
@@ -287,53 +309,51 @@ export const Experience = () => {
     housePositionZ,
     houseRotationY,
     houseScale,
-  } = useControls("🏠 Japanese House (Map5)", {
-    enableJapaneseHouse: {
-      value: false,
-      label: "✨ Enable Japanese House",
-    },
-    housePositionX: {
-      value: -30,
-      min: -50,
-      max: 50,
-      step: 1,
-      label: "📍 Position X",
-    },
-    housePositionY: {
-      value: 0,
-      min: -5,
-      max: 5,
-      step: 0.5,
-      label: "📍 Position Y (Ground Level)",
-    },
-    housePositionZ: {
-      value: 30,
-      min: -50,
-      max: 50,
-      step: 1,
-      label: "📍 Position Z",
-    },
-    houseRotationY: {
-      value: 0,
-      min: -Math.PI,
-      max: Math.PI,
-      step: 0.1,
-      label: "🔄 Rotation Y",
-    },
-    houseScale: {
-      value: 1.0,
-      min: 0.5,
-      max: 5.0,
-      step: 0.1,
-      label: "📏 House Scale",
-    },
-  });
-
-  const { showPhysicsDebug } = useControls("Physics Debug", {
-    showPhysicsDebug: {
-      value: false,
-      label: "🔍 Show Physics Meshes",
-    },
+  } = useControls("🏛️ OBJECTS", {
+    japaneseHouse: folder(
+      {
+        enableJapaneseHouse: {
+          value: false,
+          label: "✨ Enable Japanese House",
+        },
+        housePositionX: {
+          value: -30,
+          min: -50,
+          max: 50,
+          step: 1,
+          label: "📍 Position X",
+        },
+        housePositionY: {
+          value: 0,
+          min: -5,
+          max: 5,
+          step: 0.5,
+          label: "📍 Position Y (Ground Level)",
+        },
+        housePositionZ: {
+          value: 30,
+          min: -50,
+          max: 50,
+          step: 1,
+          label: "📍 Position Z",
+        },
+        houseRotationY: {
+          value: 0,
+          min: -Math.PI,
+          max: Math.PI,
+          step: 0.1,
+          label: "🔄 Rotation Y",
+        },
+        houseScale: {
+          value: 1.0,
+          min: 0.5,
+          max: 5.0,
+          step: 0.1,
+          label: "📏 House Scale",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   const {
@@ -342,53 +362,62 @@ export const Experience = () => {
     leavesCount,
     leavesAreaSize,
     leavesInteractionRange,
-  } = useControls("Dynamic Leaves (Map5)", {
-    enableDynamicLeaves3: {
-      value: false,
-      label: "🍂 Enable v3 (CPU)",
-    },
-    enableDynamicLeaves4: {
-      value: false,
-      label: "🍂 Enable v4 (GPU)",
-    },
-    leavesCount: {
-      value: 1000,
-      min: 100,
-      max: 5000,
-      step: 100,
-      label: "Leaves Count",
-    },
-    leavesAreaSize: {
-      value: 30,
-      min: 10,
-      max: 100,
-      step: 5,
-      label: "Area Size",
-    },
-    leavesInteractionRange: {
-      value: 8,
-      min: 2,
-      max: 20,
-      step: 1,
-      label: "Interaction Range",
-    },
+    enableSimonDevGrass9,
+    enableSimonDevGrass10,
+    enableSimonDevGrass11,
+  } = useControls("🌿 FOLIAGE", {
+    dynamicLeaves: folder(
+      {
+        enableDynamicLeaves3: {
+          value: false,
+          label: "🍂 Enable v3 (CPU)",
+        },
+        enableDynamicLeaves4: {
+          value: false,
+          label: "🍂 Enable v4 (GPU)",
+        },
+        leavesCount: {
+          value: 1000,
+          min: 100,
+          max: 5000,
+          step: 100,
+          label: "Leaves Count",
+        },
+        leavesAreaSize: {
+          value: 30,
+          min: 10,
+          max: 100,
+          step: 5,
+          label: "Area Size",
+        },
+        leavesInteractionRange: {
+          value: 8,
+          min: 2,
+          max: 20,
+          step: 1,
+          label: "Interaction Range",
+        },
+      },
+      { collapsed: true }
+    ),
+    simonDevGrass: folder(
+      {
+        enableSimonDevGrass9: {
+          value: false,
+          label: "🌾 Enable v9 (Original)",
+        },
+        enableSimonDevGrass10: {
+          value: false,
+          label: "🚀 Enable v10 (Optimized)",
+        },
+        enableSimonDevGrass11: {
+          value: false,
+          label: "✨ Enable v11 (Custom Shadow Material)",
+        },
+      },
+      { collapsed: true }
+    ),
   });
-
-  const { enableSimonDevGrass9, enableSimonDevGrass10, enableSimonDevGrass11 } =
-    useControls("SimonDev Grass (Map5)", {
-      enableSimonDevGrass9: {
-        value: false,
-        label: "🌾 Enable v9 (Original)",
-      },
-      enableSimonDevGrass10: {
-        value: false,
-        label: "🚀 Enable v10 (Optimized)",
-      },
-      enableSimonDevGrass11: {
-        value: false,
-        label: "✨ Enable v11 (Custom Shadow Material)",
-      },
-    });
 
   const {
     enableDustParticles,
@@ -397,49 +426,6 @@ export const Experience = () => {
     dustMaxDistance,
     dustSizeX,
     dustSizeY,
-  } = useControls("Dust Particles (Map5)", {
-    enableDustParticles: {
-      value: false,
-      label: "✨ Enable Dust Particles",
-    },
-    dustCount: {
-      value: 8,
-      min: 4,
-      max: 20,
-      step: 1,
-      label: "Particle Count",
-    },
-    dustSpawnRange: {
-      value: 20.0,
-      min: 10.0,
-      max: 50.0,
-      step: 5.0,
-      label: "Spawn Range",
-    },
-    dustMaxDistance: {
-      value: 50.0,
-      min: 20.0,
-      max: 100.0,
-      step: 10.0,
-      label: "Max Distance",
-    },
-    dustSizeX: {
-      value: 0.4,
-      min: 0.1,
-      max: 2.0,
-      step: 0.1,
-      label: "Dust Width",
-    },
-    dustSizeY: {
-      value: 0.4,
-      min: 0.1,
-      max: 2.0,
-      step: 0.1,
-      label: "Dust Height",
-    },
-  });
-
-  const {
     enableButterflies,
     butterflyCount,
     butterflySpawnRange,
@@ -450,75 +436,6 @@ export const Experience = () => {
     butterflyHeightMin,
     butterflyHeightMax,
     butterflySpreadRadius,
-  } = useControls("Butterflies/Moths (Map5)", {
-    enableButterflies: {
-      value: false,
-      label: "🦋 Enable Butterflies",
-    },
-    butterflyTexture: {
-      value: "butterfly",
-      options: ["butterfly", "moth", "both"],
-      label: "Type",
-    },
-    butterflyCount: {
-      value: 8,
-      min: 4,
-      max: 16,
-      step: 1,
-      label: "Count per Cell",
-    },
-    butterflySpawnRange: {
-      value: 40.0,
-      min: 20.0,
-      max: 80.0,
-      step: 10.0,
-      label: "Spawn Range",
-    },
-    butterflyMaxDistance: {
-      value: 100.0,
-      min: 50.0,
-      max: 200.0,
-      step: 10.0,
-      label: "Max Distance",
-    },
-    butterflyHeightMin: {
-      value: 2.0,
-      min: 0.0,
-      max: 10.0,
-      step: 0.5,
-      label: "Height Min (Y)",
-    },
-    butterflyHeightMax: {
-      value: 5.0,
-      min: 0.0,
-      max: 15.0,
-      step: 0.5,
-      label: "Height Max (Y)",
-    },
-    butterflySpreadRadius: {
-      value: 1.0,
-      min: 0.1,
-      max: 2.0,
-      step: 0.1,
-      label: "Spread Randomness",
-    },
-    butterflyWidth: {
-      value: 0.5,
-      min: 0.2,
-      max: 1.5,
-      step: 0.1,
-      label: "Wing Width",
-    },
-    butterflyHeight: {
-      value: 1.25,
-      min: 0.5,
-      max: 2.5,
-      step: 0.25,
-      label: "Wing Height",
-    },
-  });
-
-  const {
     enable3DRain,
     rainDensity,
     rain3DSpeed,
@@ -526,50 +443,169 @@ export const Experience = () => {
     rainParticleSize,
     rain3DColor,
     rain3DOpacity,
-  } = useControls("🌧️ 3D Rain Particles (Map5)", {
-    enable3DRain: {
-      value: false,
-      label: "💧 Enable 3D Rain (with shadows!)",
-    },
-    rainDensity: {
-      value: 500,
-      min: 100,
-      max: 2000,
-      step: 100,
-      label: "Rain Density",
-    },
-    rainAreaSize: {
-      value: 50.0,
-      min: 20.0,
-      max: 100.0,
-      step: 10.0,
-      label: "Area Size",
-    },
-    rain3DSpeed: {
-      value: 8.0,
-      min: 2.0,
-      max: 20.0,
-      step: 1.0,
-      label: "Fall Speed",
-    },
-    rainParticleSize: {
-      value: 0.01,
-      min: 0.005,
-      max: 0.05,
-      step: 0.001,
-      label: "Particle Size",
-    },
-    rain3DColor: {
-      value: "#d0e0ff",
-      label: "🎨 Rain Color",
-    },
-    rain3DOpacity: {
-      value: 0.4,
-      min: 0.1,
-      max: 1.0,
-      step: 0.05,
-      label: "💧 Opacity",
-    },
+  } = useControls("🌤️ AMBIENCE", {
+    dustParticles: folder(
+      {
+        enableDustParticles: {
+          value: false,
+          label: "✨ Enable Dust Particles",
+        },
+        dustCount: {
+          value: 8,
+          min: 4,
+          max: 20,
+          step: 1,
+          label: "Particle Count",
+        },
+        dustSpawnRange: {
+          value: 20.0,
+          min: 10.0,
+          max: 50.0,
+          step: 5.0,
+          label: "Spawn Range",
+        },
+        dustMaxDistance: {
+          value: 50.0,
+          min: 20.0,
+          max: 100.0,
+          step: 10.0,
+          label: "Max Distance",
+        },
+        dustSizeX: {
+          value: 0.4,
+          min: 0.1,
+          max: 2.0,
+          step: 0.1,
+          label: "Dust Width",
+        },
+        dustSizeY: {
+          value: 0.4,
+          min: 0.1,
+          max: 2.0,
+          step: 0.1,
+          label: "Dust Height",
+        },
+      },
+      { collapsed: true }
+    ),
+    butterflyParticles: folder(
+      {
+        enableButterflies: {
+          value: false,
+          label: "🦋 Enable Butterflies",
+        },
+        butterflyTexture: {
+          value: "butterfly",
+          options: ["butterfly", "moth", "both"],
+          label: "Type",
+        },
+        butterflyCount: {
+          value: 8,
+          min: 4,
+          max: 16,
+          step: 1,
+          label: "Count per Cell",
+        },
+        butterflySpawnRange: {
+          value: 40.0,
+          min: 20.0,
+          max: 80.0,
+          step: 10.0,
+          label: "Spawn Range",
+        },
+        butterflyMaxDistance: {
+          value: 100.0,
+          min: 50.0,
+          max: 200.0,
+          step: 10.0,
+          label: "Max Distance",
+        },
+        butterflyHeightMin: {
+          value: 2.0,
+          min: 0.0,
+          max: 10.0,
+          step: 0.5,
+          label: "Height Min (Y)",
+        },
+        butterflyHeightMax: {
+          value: 5.0,
+          min: 0.0,
+          max: 15.0,
+          step: 0.5,
+          label: "Height Max (Y)",
+        },
+        butterflySpreadRadius: {
+          value: 1.0,
+          min: 0.1,
+          max: 2.0,
+          step: 0.1,
+          label: "Spread Randomness",
+        },
+        butterflyWidth: {
+          value: 0.5,
+          min: 0.2,
+          max: 1.5,
+          step: 0.1,
+          label: "Wing Width",
+        },
+        butterflyHeight: {
+          value: 1.25,
+          min: 0.5,
+          max: 2.5,
+          step: 0.25,
+          label: "Wing Height",
+        },
+      },
+      { collapsed: true }
+    ),
+    rainParticles: folder(
+      {
+        enable3DRain: {
+          value: false,
+          label: "💧 Enable 3D Rain (with shadows!)",
+        },
+        rainDensity: {
+          value: 500,
+          min: 100,
+          max: 2000,
+          step: 100,
+          label: "Rain Density",
+        },
+        rainAreaSize: {
+          value: 50.0,
+          min: 20.0,
+          max: 100.0,
+          step: 10.0,
+          label: "Area Size",
+        },
+        rain3DSpeed: {
+          value: 8.0,
+          min: 2.0,
+          max: 20.0,
+          step: 1.0,
+          label: "Fall Speed",
+        },
+        rainParticleSize: {
+          value: 0.01,
+          min: 0.005,
+          max: 0.05,
+          step: 0.001,
+          label: "Particle Size",
+        },
+        rain3DColor: {
+          value: "#d0e0ff",
+          label: "🎨 Rain Color",
+        },
+        rain3DOpacity: {
+          value: 0.4,
+          min: 0.1,
+          max: 1.0,
+          step: 0.05,
+          label: "💧 Opacity",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   // Update shadow camera to follow character
@@ -842,7 +878,10 @@ export const Experience = () => {
         ) : currentMap.type === "heightmap" ? (
           <>
             {/* MAP6 - HEIGHTMAP TERRAIN with ground scatter, trees, and parkour! */}
-            <ParkourCourseMap6 onTerrainReady={setTerrainMesh} />
+            <ParkourCourseMap6
+              onTerrainReady={setTerrainMesh}
+              onHeightmapReady={(fn) => setHeightmapLookup(() => fn)}
+            />
 
             {/* Dynamic Leaves v3 (CPU-based) for map6 - TERRAIN-AWARE! */}
             {map === "map6(heightmap-terrain)" && enableDynamicLeaves3 && (
@@ -1057,9 +1096,20 @@ export const Experience = () => {
       </Physics>
 
       {/* Post-Processing Effects (N8AO + Volumetric Fog + Rain) for map4/map5/map6 */}
+      {/* Post-Processing Effects (N8AO, Bloom, etc.) */}
       {(map === "map4(terrain+newcharacter)" ||
         map === "map5(copy)" ||
         map === "map6(heightmap-terrain)") && <SSAOEffect />}
+
+      {/* Scene-Based Fog Effects (NOT post-processing!) */}
+      {(map === "map4(terrain+newcharacter)" ||
+        map === "map5(copy)" ||
+        map === "map6(heightmap-terrain)") && (
+        <>
+          <VolumetricFog />
+          <AtmosphericFog />
+        </>
+      )}
     </>
   );
 };

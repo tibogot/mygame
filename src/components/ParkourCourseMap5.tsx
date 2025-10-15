@@ -4,7 +4,7 @@ import { useTexture, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import CustomShaderMaterial from "three-custom-shader-material";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { SpheresMaterials } from "./SpheresMaterials";
 import { WaterShaderSimple } from "./WaterShaderSimple";
 import { WaterShaderTest } from "./WaterShaderTest";
@@ -41,36 +41,41 @@ export const ParkourCourseMap5 = () => {
 
   // Mountain ring controls - YOUR ORIGINAL MOUNTAIN (RESTORED!)
   const { mountainX, mountainY, mountainZ, mountainScale } = useControls(
-    "🏔️ Mountain Background (Map5)",
+    "🏛️ OBJECTS",
     {
-      mountainX: {
-        value: 0,
-        min: -200,
-        max: 200,
-        step: 5,
-        label: "Position X",
-      },
-      mountainY: {
-        value: -0.5,
-        min: -50,
-        max: 50,
-        step: 1,
-        label: "Position Y",
-      },
-      mountainZ: {
-        value: 0,
-        min: -200,
-        max: 200,
-        step: 5,
-        label: "Position Z",
-      },
-      mountainScale: {
-        value: 0.08,
-        min: 0.01,
-        max: 0.5,
-        step: 0.01,
-        label: "Scale",
-      },
+      mountainBackground: folder(
+        {
+          mountainX: {
+            value: 0,
+            min: -200,
+            max: 200,
+            step: 5,
+            label: "Position X",
+          },
+          mountainY: {
+            value: -0.5,
+            min: -50,
+            max: 50,
+            step: 1,
+            label: "Position Y",
+          },
+          mountainZ: {
+            value: 0,
+            min: -200,
+            max: 200,
+            step: 5,
+            label: "Position Z",
+          },
+          mountainScale: {
+            value: 0.08,
+            min: 0.01,
+            max: 0.5,
+            step: 0.01,
+            label: "Scale",
+          },
+        },
+        { collapsed: true }
+      ),
     }
   );
 
@@ -87,90 +92,6 @@ export const ParkourCourseMap5 = () => {
     lodLowRatio,
     leavesOpacity,
     leavesAlphaTest,
-  } = useControls("🌲 InstancedMesh2 Forest (Map5)", {
-    enableForest: {
-      value: false,
-      label: "🌲 Enable Forest",
-    },
-    treeCount: {
-      value: 1000,
-      min: 100,
-      max: 5000,
-      step: 100,
-      label: "Tree Count",
-    },
-    forestMinRadius: {
-      value: 80,
-      min: 30,
-      max: 150,
-      step: 10,
-      label: "Min Radius (clear center)",
-    },
-    forestRadius: {
-      value: 200,
-      min: 50,
-      max: 300,
-      step: 10,
-      label: "Max Radius",
-    },
-    useLOD: {
-      value: true,
-      label: "🎨 Use LOD",
-    },
-    lodMidDistance: {
-      value: 100,
-      min: 30,
-      max: 200,
-      step: 5,
-      label: "🔍 LOD Mid Distance (m)",
-    },
-    lodLowDistance: {
-      value: 180,
-      min: 50,
-      max: 300,
-      step: 10,
-      label: "🔍 LOD Low Distance (m)",
-    },
-    lodMidRatio: {
-      value: 0.5,
-      min: 0.2,
-      max: 0.8,
-      step: 0.05,
-      label: "🔍 LOD Mid Detail Ratio",
-    },
-    lodLowRatio: {
-      value: 0.2,
-      min: 0.05,
-      max: 0.5,
-      step: 0.05,
-      label: "🔍 LOD Low Detail Ratio",
-    },
-    leavesOpacity: {
-      value: 1.0,
-      min: 0.3,
-      max: 1.0,
-      step: 0.05,
-      label: "🍃 Leaves Opacity",
-    },
-    leavesAlphaTest: {
-      value: 0.5,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      label: "🍃 Leaves Alpha Cutoff",
-    },
-  });
-
-  // Material spheres toggle
-  const { enableMaterialSpheres } = useControls("Material Showcase (Map5)", {
-    enableMaterialSpheres: {
-      value: false,
-      label: "🎨 Enable Material Spheres",
-    },
-  });
-
-  // Ground scatter controls
-  const {
     enableGroundScatter,
     scatterRadius,
     stoneCount,
@@ -179,83 +100,182 @@ export const ParkourCourseMap5 = () => {
     stoneScale,
     fernScale,
     flowerScale,
-  } = useControls("🌿 Ground Scatter (Map5)", {
-    enableGroundScatter: {
-      value: false,
-      label: "🌿 Enable Ground Scatter",
-    },
-    scatterRadius: {
-      value: 50,
-      min: 20,
-      max: 200,
-      step: 5,
-      label: "📏 Scatter Radius (area size)",
-    },
-    stoneCount: {
-      value: 100,
-      min: 0,
-      max: 500,
-      step: 10,
-      label: "🪨 Stones",
-    },
-    stoneScale: {
-      value: 0.005,
-      min: 0.002,
-      max: 0.02,
-      step: 0.0005,
-      label: "🪨 Stone Scale (0.002-0.02 range)",
-    },
-    fernCount: {
-      value: 200,
-      min: 0,
-      max: 1000,
-      step: 50,
-      label: "🌿 Ferns",
-    },
-    fernScale: {
-      value: 0.7,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🌿 Fern Scale",
-    },
-    flowerCount: {
-      value: 300,
-      min: 0,
-      max: 1000,
-      step: 50,
-      label: "🌸 Flowers",
-    },
-    flowerScale: {
-      value: 0.1,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🌸 Flower Scale",
-    },
+  } = useControls("🌿 FOLIAGE", {
+    instancedMesh2Forest: folder(
+      {
+        enableForest: {
+          value: false,
+          label: "🌲 Enable Forest",
+        },
+        treeCount: {
+          value: 1000,
+          min: 100,
+          max: 5000,
+          step: 100,
+          label: "Tree Count",
+        },
+        forestMinRadius: {
+          value: 80,
+          min: 30,
+          max: 150,
+          step: 10,
+          label: "Min Radius (clear center)",
+        },
+        forestRadius: {
+          value: 200,
+          min: 50,
+          max: 300,
+          step: 10,
+          label: "Max Radius",
+        },
+        useLOD: {
+          value: true,
+          label: "🎨 Use LOD",
+        },
+        lodMidDistance: {
+          value: 100,
+          min: 30,
+          max: 200,
+          step: 5,
+          label: "🔍 LOD Mid Distance (m)",
+        },
+        lodLowDistance: {
+          value: 180,
+          min: 50,
+          max: 300,
+          step: 10,
+          label: "🔍 LOD Low Distance (m)",
+        },
+        lodMidRatio: {
+          value: 0.5,
+          min: 0.2,
+          max: 0.8,
+          step: 0.05,
+          label: "🔍 LOD Mid Detail Ratio",
+        },
+        lodLowRatio: {
+          value: 0.2,
+          min: 0.05,
+          max: 0.5,
+          step: 0.05,
+          label: "🔍 LOD Low Detail Ratio",
+        },
+        leavesOpacity: {
+          value: 1.0,
+          min: 0.3,
+          max: 1.0,
+          step: 0.05,
+          label: "🍃 Leaves Opacity",
+        },
+        leavesAlphaTest: {
+          value: 0.5,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "🍃 Leaves Alpha Cutoff",
+        },
+      },
+      { collapsed: true }
+    ),
+    groundScatter: folder(
+      {
+        enableGroundScatter: {
+          value: false,
+          label: "🌿 Enable Ground Scatter",
+        },
+        scatterRadius: {
+          value: 50,
+          min: 20,
+          max: 200,
+          step: 5,
+          label: "📏 Scatter Radius (area size)",
+        },
+        stoneCount: {
+          value: 100,
+          min: 0,
+          max: 500,
+          step: 10,
+          label: "🪨 Stones",
+        },
+        stoneScale: {
+          value: 0.005,
+          min: 0.002,
+          max: 0.02,
+          step: 0.0005,
+          label: "🪨 Stone Scale (0.002-0.02 range)",
+        },
+        fernCount: {
+          value: 200,
+          min: 0,
+          max: 1000,
+          step: 50,
+          label: "🌿 Ferns",
+        },
+        fernScale: {
+          value: 0.7,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🌿 Fern Scale",
+        },
+        flowerCount: {
+          value: 300,
+          min: 0,
+          max: 1000,
+          step: 50,
+          label: "🌸 Flowers",
+        },
+        flowerScale: {
+          value: 0.1,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🌸 Flower Scale",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
+
+  // Material spheres toggle
+  const { enableMaterialSpheres } = useControls("🔍 DEBUG", {
+    materialShowcase: folder(
+      {
+        enableMaterialSpheres: {
+          value: false,
+          label: "🎨 Enable Material Spheres",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   // Shadow test plane toggle
   const { enableShadowTestPlane, shadowPlaneHeight, shadowPlaneSize } =
-    useControls("Shadow Test (Map5)", {
-      enableShadowTestPlane: {
-        value: false,
-        label: "🔴 Enable Shadow Test Plane",
-      },
-      shadowPlaneHeight: {
-        value: 6,
-        min: 1,
-        max: 20,
-        step: 0.5,
-        label: "Plane Height",
-      },
-      shadowPlaneSize: {
-        value: 10,
-        min: 2,
-        max: 50,
-        step: 1,
-        label: "Plane Size",
-      },
+    useControls("🔍 DEBUG", {
+      shadowTest: folder(
+        {
+          enableShadowTestPlane: {
+            value: false,
+            label: "🔴 Enable Shadow Test Plane",
+          },
+          shadowPlaneHeight: {
+            value: 6,
+            min: 1,
+            max: 20,
+            step: 0.5,
+            label: "Plane Height",
+          },
+          shadowPlaneSize: {
+            value: 10,
+            min: 2,
+            max: 50,
+            step: 1,
+            label: "Plane Size",
+          },
+        },
+        { collapsed: true }
+      ),
     });
 
   // Water shader controls

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Deer } from "./Deer";
@@ -77,79 +77,84 @@ export const DeerHerd: React.FC<DeerHerdProps> = ({ terrainMesh }) => {
     deerScale,
     castShadow,
     receiveShadow,
-  } = useControls("🦌 Deer Herd (Map5)", {
-    enabled: {
-      value: false,
-      label: "✨ Enable Deer Herd",
-    },
-    deerCount: {
-      value: 5,
-      min: 1,
-      max: 20,
-      step: 1,
-      label: "🦌 Deer Count (1-20)",
-    },
-    enableAI: {
-      value: true,
-      label: "🤖 Enable AI (Auto Behavior)",
-    },
-    walkSpeed: {
-      value: 1.0,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🚶 Walk Speed",
-    },
-    rotationSpeed: {
-      value: 2.0,
-      min: 0.5,
-      max: 5.0,
-      step: 0.5,
-      label: "🔄 Rotation Speed",
-    },
-    minStateDuration: {
-      value: 3,
-      min: 1,
-      max: 10,
-      step: 1,
-      label: "⏱️ Min Behavior Duration (sec)",
-    },
-    maxStateDuration: {
-      value: 8,
-      min: 3,
-      max: 20,
-      step: 1,
-      label: "⏱️ Max Behavior Duration (sec)",
-    },
-    mapBoundary: {
-      value: 40,
-      min: 10,
-      max: 100,
-      step: 5,
-      label: "🗺️ Map Boundary",
-    },
-    spawnRadius: {
-      value: 25,
-      min: 5,
-      max: 50,
-      step: 5,
-      label: "📍 Spawn Radius (Initial Spread)",
-    },
-    deerScale: {
-      value: 0.5,
-      min: 0.2,
-      max: 2.0,
-      step: 0.1,
-      label: "📏 Deer Scale",
-    },
-    castShadow: {
-      value: true,
-      label: "🌑 Cast Shadow",
-    },
-    receiveShadow: {
-      value: true,
-      label: "🌑 Receive Shadow",
-    },
+  } = useControls("🏛️ OBJECTS", {
+    deerHerd: folder(
+      {
+        enabled: {
+          value: false,
+          label: "✨ Enable Deer Herd",
+        },
+        deerCount: {
+          value: 5,
+          min: 1,
+          max: 20,
+          step: 1,
+          label: "🦌 Deer Count (1-20)",
+        },
+        enableAI: {
+          value: true,
+          label: "🤖 Enable AI (Auto Behavior)",
+        },
+        walkSpeed: {
+          value: 1.0,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🚶 Walk Speed",
+        },
+        rotationSpeed: {
+          value: 2.0,
+          min: 0.5,
+          max: 5.0,
+          step: 0.5,
+          label: "🔄 Rotation Speed",
+        },
+        minStateDuration: {
+          value: 3,
+          min: 1,
+          max: 10,
+          step: 1,
+          label: "⏱️ Min Behavior Duration (sec)",
+        },
+        maxStateDuration: {
+          value: 8,
+          min: 3,
+          max: 20,
+          step: 1,
+          label: "⏱️ Max Behavior Duration (sec)",
+        },
+        mapBoundary: {
+          value: 40,
+          min: 10,
+          max: 100,
+          step: 5,
+          label: "🗺️ Map Boundary",
+        },
+        spawnRadius: {
+          value: 25,
+          min: 5,
+          max: 50,
+          step: 5,
+          label: "📍 Spawn Radius (Initial Spread)",
+        },
+        deerScale: {
+          value: 0.5,
+          min: 0.2,
+          max: 2.0,
+          step: 0.1,
+          label: "📏 Deer Scale",
+        },
+        castShadow: {
+          value: true,
+          label: "🌑 Cast Shadow",
+        },
+        receiveShadow: {
+          value: true,
+          label: "🌑 Receive Shadow",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   // Initialize deer instances when count changes

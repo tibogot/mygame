@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Deer } from "./Deer";
@@ -105,65 +105,70 @@ export const DeerController: React.FC<DeerControllerProps> = ({
     deerScale,
     castShadow,
     receiveShadow,
-  } = useControls("🦌 Deer (Map5)", {
-    enabled: {
-      value: false,
-      label: "✨ Enable Deer",
-    },
-    enableAI: {
-      value: true,
-      label: "🤖 Enable AI (Auto Walk/Eat/Idle)",
-    },
-    walkSpeed: {
-      value: 1.0,
-      min: 0.1,
-      max: 3.0,
-      step: 0.1,
-      label: "🚶 Walk Speed (When Walking)",
-    },
-    rotationSpeed: {
-      value: 2.0,
-      min: 0.5,
-      max: 5.0,
-      step: 0.5,
-      label: "🔄 Rotation Speed (Turn Rate)",
-    },
-    minStateDuration: {
-      value: 3,
-      min: 1,
-      max: 10,
-      step: 1,
-      label: "⏱️ Min Behavior Duration (seconds)",
-    },
-    maxStateDuration: {
-      value: 8,
-      min: 3,
-      max: 20,
-      step: 1,
-      label: "⏱️ Max Behavior Duration (seconds)",
-    },
-    mapBoundary: {
-      value: 40,
-      min: 10,
-      max: 100,
-      step: 5,
-      label: "🗺️ Map Boundary (Stay Within)",
-    },
-    deerScale: {
-      value: 0.5,
-      min: 0.2,
-      max: 2.0,
-      step: 0.1,
-      label: "📏 Deer Scale (0.5 = Natural Size)",
-    },
-    castShadow: {
-      value: true,
-      label: "🌑 Cast Shadow",
-    },
-    receiveShadow: {
-      value: true,
-      label: "🌑 Receive Shadow",
-    },
+  } = useControls("🏛️ OBJECTS", {
+    deer: folder(
+      {
+        enabled: {
+          value: false,
+          label: "✨ Enable Deer",
+        },
+        enableAI: {
+          value: true,
+          label: "🤖 Enable AI (Auto Walk/Eat/Idle)",
+        },
+        walkSpeed: {
+          value: 1.0,
+          min: 0.1,
+          max: 3.0,
+          step: 0.1,
+          label: "🚶 Walk Speed (When Walking)",
+        },
+        rotationSpeed: {
+          value: 2.0,
+          min: 0.5,
+          max: 5.0,
+          step: 0.5,
+          label: "🔄 Rotation Speed (Turn Rate)",
+        },
+        minStateDuration: {
+          value: 3,
+          min: 1,
+          max: 10,
+          step: 1,
+          label: "⏱️ Min Behavior Duration (seconds)",
+        },
+        maxStateDuration: {
+          value: 8,
+          min: 3,
+          max: 20,
+          step: 1,
+          label: "⏱️ Max Behavior Duration (seconds)",
+        },
+        mapBoundary: {
+          value: 40,
+          min: 10,
+          max: 100,
+          step: 5,
+          label: "🗺️ Map Boundary (Stay Within)",
+        },
+        deerScale: {
+          value: 0.5,
+          min: 0.2,
+          max: 2.0,
+          step: 0.1,
+          label: "📏 Deer Scale (0.5 = Natural Size)",
+        },
+        castShadow: {
+          value: true,
+          label: "🌑 Cast Shadow",
+        },
+        receiveShadow: {
+          value: true,
+          label: "🌑 Receive Shadow",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   // Play animation based on AI state

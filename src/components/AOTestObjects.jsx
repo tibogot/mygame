@@ -1,6 +1,6 @@
 import React from "react";
 import { RigidBody } from "@react-three/rapier";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 
 /**
  * Test objects to demonstrate Ambient Occlusion
@@ -12,11 +12,16 @@ import { useControls } from "leva";
  * - In recessed areas
  */
 export const AOTestObjects = () => {
-  const { showTestObjects } = useControls("SSAO Test Objects", {
-    showTestObjects: {
-      value: false,
-      label: "🎲 Show AO Test Objects",
-    },
+  const { showTestObjects } = useControls("🔍 DEBUG", {
+    ssaoTestObjects: folder(
+      {
+        showTestObjects: {
+          value: false,
+          label: "🎲 Show AO Test Objects",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   if (!showTestObjects) return null;

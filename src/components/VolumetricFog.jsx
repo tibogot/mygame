@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import * as THREE from "three";
 
 /**
@@ -26,58 +26,63 @@ export const VolumetricFog = () => {
     density,
     heightFalloff,
     heightOffset,
-  } = useControls("Volumetric Fog (Map5)", {
-    enabled: {
-      value: false,
-      label: "🌫️ Enable Fog",
-    },
-    fogType: {
-      value: "exponential",
-      options: {
-        "Linear (distance-based)": "linear",
-        "Exponential (more realistic)": "exponential",
+  } = useControls("🌤️ AMBIENCE", {
+    volumetricFogSimple: folder(
+      {
+        enabled: {
+          value: false,
+          label: "🌫️ Enable Fog",
+        },
+        fogType: {
+          value: "exponential",
+          options: {
+            "Linear (distance-based)": "linear",
+            "Exponential (more realistic)": "exponential",
+          },
+          label: "Fog Type",
+        },
+        fogColor: {
+          value: "#c8d5e8",
+          label: "🎨 Fog Color",
+        },
+        near: {
+          value: 10,
+          min: 0.1,
+          max: 100,
+          step: 0.5,
+          label: "📏 Near Distance (linear only)",
+        },
+        far: {
+          value: 80,
+          min: 10,
+          max: 200,
+          step: 1,
+          label: "📏 Far Distance (linear only)",
+        },
+        density: {
+          value: 0.015,
+          min: 0.0,
+          max: 0.1,
+          step: 0.001,
+          label: "💨 Density (exponential only)",
+        },
+        heightFalloff: {
+          value: 0.05,
+          min: 0.0,
+          max: 0.5,
+          step: 0.01,
+          label: "⛰️ Height Falloff (lower = more fog at ground)",
+        },
+        heightOffset: {
+          value: 0,
+          min: -20,
+          max: 20,
+          step: 1,
+          label: "📐 Height Offset",
+        },
       },
-      label: "Fog Type",
-    },
-    fogColor: {
-      value: "#c8d5e8",
-      label: "🎨 Fog Color",
-    },
-    near: {
-      value: 10,
-      min: 0.1,
-      max: 100,
-      step: 0.5,
-      label: "📏 Near Distance (linear only)",
-    },
-    far: {
-      value: 80,
-      min: 10,
-      max: 200,
-      step: 1,
-      label: "📏 Far Distance (linear only)",
-    },
-    density: {
-      value: 0.015,
-      min: 0.0,
-      max: 0.1,
-      step: 0.001,
-      label: "💨 Density (exponential only)",
-    },
-    heightFalloff: {
-      value: 0.05,
-      min: 0.0,
-      max: 0.5,
-      step: 0.01,
-      label: "⛰️ Height Falloff (lower = more fog at ground)",
-    },
-    heightOffset: {
-      value: 0,
-      min: -20,
-      max: 20,
-      step: 1,
-      label: "📐 Height Offset",
-    },
+      { collapsed: true }
+    ),
   });
 
   // Apply fog to scene
@@ -85,7 +90,6 @@ export const VolumetricFog = () => {
     if (!enabled) {
       // Remove fog
       scene.fog = null;
-      console.log("🌫️ Fog disabled");
       return;
     }
 
@@ -94,11 +98,9 @@ export const VolumetricFog = () => {
     if (fogType === "linear") {
       // Linear fog - fades linearly between near and far distances
       scene.fog = new THREE.Fog(color, near, far);
-      console.log(`🌫️ Linear Fog enabled: near=${near}, far=${far}`);
     } else {
       // Exponential fog - more realistic, density-based
       scene.fog = new THREE.FogExp2(color, density);
-      console.log(`🌫️ Exponential Fog enabled: density=${density}`);
     }
 
     // Make sure skybox/environment/background is not affected by fog

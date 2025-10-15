@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useKeyboardControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { CapsuleCollider, RigidBody, useRapier } from "@react-three/rapier";
-import { useControls } from "leva";
+import { useControls, folder } from "leva";
 import { MathUtils, Vector3, Matrix4, Line3, Box3 } from "three";
 import { degToRad } from "three/src/math/MathUtils.js";
 import { GodotCharacter } from "./GodotCharacter";
@@ -48,47 +48,62 @@ export const GodotCharacterHybrid = ({
   // Access Rapier world for raycasting dynamic objects
   const { world, rapier } = useRapier();
 
-  const { WALK_SPEED, RUN_SPEED, ROTATION_SPEED, JUMP_FORCE } = useControls(
-    "Godot Hybrid Control",
-    {
-      WALK_SPEED: { value: 1.8, min: 0.1, max: 4, step: 0.1 },
-      RUN_SPEED: { value: 4, min: 0.2, max: 12, step: 0.1 },
-      ROTATION_SPEED: {
-        value: degToRad(0.5),
-        min: degToRad(0.1),
-        max: degToRad(5),
-        step: degToRad(0.1),
+  const {
+    WALK_SPEED,
+    RUN_SPEED,
+    ROTATION_SPEED,
+    JUMP_FORCE,
+    cameraX,
+    cameraY,
+    cameraZ,
+    targetZ,
+    cameraLerpSpeed,
+    capsuleHeight,
+    capsuleRadius,
+  } = useControls("🎮 GODOT CHARACTER", {
+    control: folder(
+      {
+        WALK_SPEED: { value: 1.8, min: 0.1, max: 4, step: 0.1 },
+        RUN_SPEED: { value: 4, min: 0.2, max: 12, step: 0.1 },
+        ROTATION_SPEED: {
+          value: degToRad(0.5),
+          min: degToRad(0.1),
+          max: degToRad(5),
+          step: degToRad(0.1),
+        },
+        JUMP_FORCE: { value: 6, min: 1, max: 10, step: 0.1 },
       },
-      JUMP_FORCE: { value: 6, min: 1, max: 10, step: 0.1 },
-    }
-  );
-
-  const { cameraX, cameraY, cameraZ, targetZ, cameraLerpSpeed } = useControls(
-    "Godot Hybrid Camera",
-    {
-      cameraX: { value: 0, min: -10, max: 10, step: 0.1 },
-      cameraY: { value: 1.5, min: 0, max: 10, step: 0.1 },
-      cameraZ: { value: -5.6, min: -10, max: 2, step: 0.1 },
-      targetZ: { value: 5, min: -2, max: 5, step: 0.1 },
-      cameraLerpSpeed: { value: 0.1, min: 0.01, max: 0.5, step: 0.01 },
-    }
-  );
-
-  const { capsuleHeight, capsuleRadius } = useControls("Godot Hybrid Capsule", {
-    capsuleHeight: {
-      value: 1.4,
-      min: 0.5,
-      max: 2.0,
-      step: 0.05,
-      label: "Capsule Total Height",
-    },
-    capsuleRadius: {
-      value: 0.3,
-      min: 0.05,
-      max: 0.3,
-      step: 0.01,
-      label: "Capsule Radius",
-    },
+      { collapsed: true }
+    ),
+    camera: folder(
+      {
+        cameraX: { value: 0, min: -10, max: 10, step: 0.1 },
+        cameraY: { value: 1.5, min: 0, max: 10, step: 0.1 },
+        cameraZ: { value: -5.6, min: -10, max: 2, step: 0.1 },
+        targetZ: { value: 5, min: -2, max: 5, step: 0.1 },
+        cameraLerpSpeed: { value: 0.1, min: 0.01, max: 0.5, step: 0.01 },
+      },
+      { collapsed: true }
+    ),
+    capsule: folder(
+      {
+        capsuleHeight: {
+          value: 1.4,
+          min: 0.5,
+          max: 2.0,
+          step: 0.05,
+          label: "Capsule Total Height",
+        },
+        capsuleRadius: {
+          value: 0.3,
+          min: 0.05,
+          max: 0.3,
+          step: 0.01,
+          label: "Capsule Radius",
+        },
+      },
+      { collapsed: true }
+    ),
   });
 
   const rb = useRef<any>(null);
@@ -126,21 +141,7 @@ export const GodotCharacterHybrid = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "r" || e.key === "R") {
-        setCombatMode((prev) => {
-          const newMode = !prev;
-          console.log("=".repeat(50));
-          if (newMode) {
-            console.log("⚔️  COMBAT MODE ENABLED  ⚔️");
-            console.log("Left Click: Primary Sword Attack");
-            console.log("Right Click: Alternative Sword Attack");
-            console.log("Press R again to exit combat mode");
-          } else {
-            console.log("🛡️  COMBAT MODE DISABLED  🛡️");
-            console.log("Press R to re-enter combat mode");
-          }
-          console.log("=".repeat(50));
-          return newMode;
-        });
+        setCombatMode((prev) => !prev);
       }
     };
 
@@ -157,14 +158,12 @@ export const GodotCharacterHybrid = ({
 
       if (e.button === 0) {
         // Left click - primary attack
-        console.log("⚔️ PRIMARY SWORD ATTACK!");
         setAnimation("swordAttack");
         setTimeout(() => {
           isAttacking.current = false;
         }, 600); // Attack duration
       } else if (e.button === 2) {
         // Right click - secondary attack
-        console.log("⚔️ SECONDARY SWORD ATTACK!");
         setAnimation("swordAttackAlt");
         setTimeout(() => {
           isAttacking.current = false;
@@ -492,14 +491,12 @@ export const GodotCharacterHybrid = ({
             { x: currentPos.x, y: currentPos.y - heightDiff, z: currentPos.z },
             true
           );
-          console.log("🔽 Crouching");
         } else {
           // Standing up: move body UP (only if clearance!)
           rb.current.setTranslation(
             { x: currentPos.x, y: currentPos.y + heightDiff, z: currentPos.z },
             true
           );
-          console.log("🔼 Standing up");
 
           // Force idle animation when standing up
           setAnimation("idle");
@@ -507,29 +504,6 @@ export const GodotCharacterHybrid = ({
 
         // Update ref immediately (not async)
         isCrouchingRef.current = shouldBeCrouched;
-      }
-
-      // Show debug messages
-      if (
-        !crouchInput &&
-        !hasCeilingClearance &&
-        isCrouchingRef.current &&
-        Math.random() < 0.02
-      ) {
-        console.log(
-          "⚠️ FORCED CROUCH: Ceiling too low (needs 50cm clearance)!"
-        );
-      }
-      if (
-        ceilingClearanceTimer.current >= 0 &&
-        ceilingClearanceTimer.current < standUpDelay &&
-        Math.random() < 0.05
-      ) {
-        console.log(
-          `⏳ Auto-standing in... ${(
-            standUpDelay - ceilingClearanceTimer.current
-          ).toFixed(2)}s`
-        );
       }
 
       // Movement input FIRST (before jump)
