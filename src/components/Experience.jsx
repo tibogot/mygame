@@ -7,8 +7,8 @@ import {
 } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import { useControls, folder } from "leva";
-import { useRef, useState, Suspense, useCallback } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useRef, useState, Suspense, useCallback, useEffect } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { CharacterController } from "./CharacterController";
 import { YbotCharacterController } from "./YbotCharacterController";
@@ -20,6 +20,8 @@ import { DynamicLeaves as DynamicLeaves3 } from "./DynamicLeaves3";
 import { SimonDevGrass9 } from "./SimonDevGrass9";
 import { SimonDevGrass10 } from "./SimonDevGrass10";
 import { SimonDevGrass11 } from "./SimonDevGrass11";
+import { SimonDevGrass12 } from "./SimonDevGrass12";
+import { SimonGrassLOD } from "./SimonGrassLOD";
 import { SSAOEffect } from "./SSAOEffect";
 import { VolumetricFog } from "./VolumetricFog";
 import { AtmosphericFog } from "./AtmosphericFog";
@@ -104,9 +106,130 @@ const maps = {
   },
 };
 
+// Custom TerrainCSM class - Perfect for Zelda-like games!
+class TerrainCSM {
+  constructor(scene, camera, lightDirection, options = {}) {
+    this.scene = scene;
+    this.camera = camera;
+    this.cascades = [];
+    this.lightDirection = lightDirection.clone().normalize();
+    this.baseIntensity = options.lightIntensity || 1.0; // Store base intensity
+    this.baseColor = options.lightColor || 0xffffff; // Store base color
+
+    const {
+      cascadeCount = 3,
+      maxFar = 800,
+      shadowMapSize = 2048,
+      lightIntensity = 1.0,
+      lightColor = 0xffffff,
+      shadowBias = -0.0001,
+    } = options;
+
+    // Zelda-optimized cascade splits centered around CHARACTER position
+    // Near: 0-50m from character (crisp character shadow + nearby objects)
+    // Mid: 50-200m from character (good shadows for mid-range objects)
+    // Far: 200-800m from character (acceptable shadows for distant terrain)
+    const cascadeSplits = [50, 200, maxFar];
+
+    for (let i = 0; i < cascadeCount; i++) {
+      const light = new THREE.DirectionalLight(
+        lightColor,
+        lightIntensity / cascadeCount
+      );
+      light.position.copy(this.lightDirection).multiplyScalar(100);
+      light.castShadow = true;
+
+      // Configure shadow camera for this cascade
+      const size = cascadeSplits[i];
+      light.shadow.camera.left = -size;
+      light.shadow.camera.right = size;
+      light.shadow.camera.top = size;
+      light.shadow.camera.bottom = -size;
+      light.shadow.camera.near = 0.5;
+      light.shadow.camera.far = cascadeSplits[i] + 100;
+
+      light.shadow.mapSize.width = shadowMapSize;
+      light.shadow.mapSize.height = shadowMapSize;
+      light.shadow.bias = shadowBias;
+      light.shadow.radius = 4; // Soft shadows
+      light.shadow.normalBias = 0.02;
+
+      scene.add(light);
+      this.cascades.push({
+        light,
+        maxDistance: cascadeSplits[i],
+        target: new THREE.Object3D(),
+      });
+    }
+
+    console.log(
+      `🌅 TerrainCSM initialized with ${cascadeCount} cascades for Zelda terrain!`
+    );
+  }
+
+  update(characterPosition = null) {
+    // Use character position if provided, otherwise fall back to camera
+    const targetPos = characterPosition || this.camera.position;
+
+    this.cascades.forEach((cascade, index) => {
+      // Calculate light position for this cascade
+      const lightPos = cascade.light.position
+        .clone()
+        .normalize()
+        .multiplyScalar(100)
+        .add(targetPos);
+
+      cascade.light.position.copy(lightPos);
+      cascade.light.target.position.copy(targetPos);
+      cascade.light.target.updateMatrixWorld();
+
+      // Fade out distant cascades for smooth transitions
+      const distance = targetPos.distanceTo(cascade.light.target.position);
+      const fadeStart = cascade.maxDistance * 0.8;
+      const fadeEnd = cascade.maxDistance;
+
+      if (distance > fadeStart) {
+        const fade = Math.max(
+          0,
+          1 - (distance - fadeStart) / (fadeEnd - fadeStart)
+        );
+        cascade.light.intensity =
+          (this.baseIntensity / this.cascades.length) * fade;
+      } else {
+        cascade.light.intensity = this.baseIntensity / this.cascades.length;
+      }
+    });
+  }
+
+  dispose() {
+    this.cascades.forEach((cascade) => {
+      this.scene.remove(cascade.light);
+      cascade.light.dispose();
+    });
+    this.cascades = [];
+    console.log("🌅 TerrainCSM disposed");
+  }
+
+  // Update light properties
+  setLightIntensity(intensity) {
+    this.baseIntensity = intensity;
+    // Update will apply this to all cascades with proper fade calculations
+  }
+
+  setLightColor(color) {
+    this.baseColor = color;
+    this.cascades.forEach((cascade) => {
+      cascade.light.color.setHex(color);
+    });
+  }
+}
+
 export const Experience = () => {
   const shadowCameraRef = useRef();
   const directionalLightRef = useRef();
+  const csmRef = useRef();
+  const sceneRef = useRef();
+  const cameraRef = useRef();
   const characterPositionRef = useRef([0, 0, 0]);
   const characterPositionVector = useRef(new THREE.Vector3());
   const characterVelocity = useRef(new THREE.Vector3());
@@ -115,6 +238,9 @@ export const Experience = () => {
   const [bvhCollider, setBVHCollider] = useState(null);
   const [terrainMesh, setTerrainMesh] = useState(null); // Map6 terrain for deer
   const [heightmapLookup, setHeightmapLookup] = useState(null); // Map6 heightmap O(1) lookup
+
+  // Get scene and camera references for CSM
+  const { scene, camera } = useThree();
 
   // Terrain height getter for Map6 grass/effects - FAST O(1) HEIGHTMAP LOOKUP!
   // 🚀 NO MORE RAYCASTING - Direct array lookup like Quick_Grass!
@@ -162,6 +288,11 @@ export const Experience = () => {
     shadowRadius,
     shadowNormalBias,
     followCharacter,
+    enableCSM,
+    csmCascades,
+    csmMaxFar,
+    csmShadowMapSize,
+    csmFade,
     ambientIntensity,
     ambientColor,
   } = useControls("💡 LIGHTS", {
@@ -262,6 +393,34 @@ export const Experience = () => {
           max: 0.1,
           step: 0.005,
           label: "Normal Bias (Fixes Vertical Surfaces)",
+        },
+        // CSM Controls
+        enableCSM: {
+          value: false,
+          label: "🌅 Enable Cascaded Shadow Maps (CSM)",
+        },
+        csmCascades: {
+          value: 3,
+          min: 2,
+          max: 6,
+          step: 1,
+          label: "CSM Cascade Count (3-4 for large terrain)",
+        },
+        csmMaxFar: {
+          value: 800,
+          min: 200,
+          max: 2000,
+          step: 50,
+          label: "CSM Max Distance",
+        },
+        csmShadowMapSize: {
+          value: 2048,
+          options: [1024, 2048, 4096],
+          label: "CSM Shadow Quality",
+        },
+        csmFade: {
+          value: true,
+          label: "CSM Fade Between Cascades (built-in)",
         },
       },
       { collapsed: true }
@@ -365,6 +524,8 @@ export const Experience = () => {
     enableSimonDevGrass9,
     enableSimonDevGrass10,
     enableSimonDevGrass11,
+    enableSimonDevGrass12,
+    enableSimonGrassLOD,
   } = useControls("🌿 FOLIAGE", {
     dynamicLeaves: folder(
       {
@@ -413,6 +574,14 @@ export const Experience = () => {
         enableSimonDevGrass11: {
           value: false,
           label: "✨ Enable v11 (Custom Shadow Material)",
+        },
+        enableSimonDevGrass12: {
+          value: false,
+          label: "🔧 Enable v12 (Refactored - Controls Extracted)",
+        },
+        enableSimonGrassLOD: {
+          value: false,
+          label: "🚀 Enable LOD (Ultra-Optimized - Zelda BOTW Style)",
         },
       },
       { collapsed: true }
@@ -608,8 +777,68 @@ export const Experience = () => {
     ),
   });
 
-  // Update shadow camera to follow character
+  // CSM Setup Effect
+  useEffect(() => {
+    if (enableCSM && scene && camera) {
+      // Create custom TerrainCSM instance
+      csmRef.current = new TerrainCSM(
+        scene,
+        camera,
+        new THREE.Vector3(sunPositionX, -sunPositionY, sunPositionZ),
+        {
+          cascadeCount: csmCascades,
+          maxFar: csmMaxFar,
+          shadowMapSize: csmShadowMapSize,
+          lightIntensity: sunIntensity,
+          lightColor: sunColor,
+          shadowBias: -0.0001,
+        }
+      );
+    } else if (!enableCSM && csmRef.current) {
+      // Clean up CSM
+      csmRef.current.dispose();
+      csmRef.current = null;
+      console.log("🌅 CSM disabled, back to regular shadows");
+    }
+
+    return () => {
+      if (csmRef.current) {
+        csmRef.current.dispose();
+        csmRef.current = null;
+      }
+    };
+  }, [
+    enableCSM,
+    csmCascades,
+    csmMaxFar,
+    csmShadowMapSize,
+    scene,
+    camera,
+    sunPositionX,
+    sunPositionY,
+    sunPositionZ,
+    sunIntensity,
+    sunColor,
+  ]);
+
+  // Update CSM light properties when they change
+  useEffect(() => {
+    if (enableCSM && csmRef.current) {
+      csmRef.current.setLightIntensity(sunIntensity);
+      csmRef.current.setLightColor(sunColor);
+    }
+  }, [enableCSM, sunIntensity, sunColor]);
+
+  // Update shadow camera to follow character and CSM
   useFrame(() => {
+    // Update CSM if enabled - pass character position for character-centered shadows
+    if (enableCSM && csmRef.current) {
+      const characterPos = characterPositionRef.current
+        ? new THREE.Vector3(...characterPositionRef.current)
+        : null;
+      csmRef.current.update(characterPos);
+    }
+
     if (
       followCharacter &&
       directionalLightRef.current &&
@@ -661,30 +890,32 @@ export const Experience = () => {
       {/* Ambient Light */}
       <ambientLight intensity={ambientIntensity} color={ambientColor} />
 
-      {/* Sun Light with optimized shadows */}
-      <directionalLight
-        ref={directionalLightRef}
-        intensity={sunIntensity}
-        color={sunColor}
-        castShadow
-        position={[sunPositionX, sunPositionY, sunPositionZ]}
-        shadow-mapSize-width={shadowMapSize}
-        shadow-mapSize-height={shadowMapSize}
-        shadow-bias={shadowBias}
-        shadow-radius={shadowRadius}
-        shadow-normalBias={shadowNormalBias}
-      >
-        <OrthographicCamera
-          left={-shadowCameraSize}
-          right={shadowCameraSize}
-          top={shadowCameraSize}
-          bottom={-shadowCameraSize}
-          near={0.5}
-          far={200}
-          ref={shadowCameraRef}
-          attach={"shadow-camera"}
-        />
-      </directionalLight>
+      {/* Sun Light with optimized shadows - Only show when CSM is disabled */}
+      {!enableCSM && (
+        <directionalLight
+          ref={directionalLightRef}
+          intensity={sunIntensity}
+          color={sunColor}
+          castShadow
+          position={[sunPositionX, sunPositionY, sunPositionZ]}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-radius={shadowRadius}
+          shadow-normalBias={shadowNormalBias}
+        >
+          <OrthographicCamera
+            left={-shadowCameraSize}
+            right={shadowCameraSize}
+            top={shadowCameraSize}
+            bottom={-shadowCameraSize}
+            near={0.5}
+            far={200}
+            ref={shadowCameraRef}
+            attach={"shadow-camera"}
+          />
+        </directionalLight>
+      )}
       <Physics key={map} debug={showPhysicsDebug}>
         {currentMap.type === "plane" ? (
           <>
@@ -730,34 +961,68 @@ export const Experience = () => {
                 characterSwirlStrength={0.5}
               />
             )}
-            {/* SimonDev Grass v9 for map5 - Original version */}
-            {map === "map5(copy)" && enableSimonDevGrass9 && (
-              <SimonDevGrass9
-                areaSize={50}
-                getGroundHeight={(x, z) => 0}
-                grassHeight={1.0}
-                grassScale={1.0}
-              />
-            )}
-            {/* SimonDev Grass v10 for map5 - Optimized with chunking + frustum culling */}
-            {map === "map5(copy)" && enableSimonDevGrass10 && (
-              <SimonDevGrass10
-                areaSize={50}
-                getGroundHeight={(x, z) => 0}
-                grassHeight={1.0}
-                grassScale={1.0}
-              />
-            )}
-            {/* SimonDev Grass v11 for map5 - Custom depth material for accurate animated shadows */}
-            {map === "map5(copy)" && enableSimonDevGrass11 && (
-              <SimonDevGrass11
+            {/* SimonDev Grass - Only one version active at a time (LOD has highest priority) */}
+            {map === "map5(copy)" && enableSimonGrassLOD && (
+              <SimonGrassLOD
+                key="simon-grass-lod"
                 areaSize={200}
                 getGroundHeight={(x, z) => 0}
                 grassHeight={1.0}
                 grassScale={1.0}
                 characterPosition={characterPositionVector.current}
+                map={map}
               />
             )}
+            {map === "map5(copy)" &&
+              !enableSimonGrassLOD &&
+              enableSimonDevGrass12 && (
+                <SimonDevGrass12
+                  key="simon-dev-grass-12"
+                  areaSize={200}
+                  getGroundHeight={(x, z) => 0}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                  characterPosition={characterPositionVector.current}
+                  map={map}
+                />
+              )}
+            {map === "map5(copy)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              enableSimonDevGrass11 && (
+                <SimonDevGrass11
+                  areaSize={200}
+                  getGroundHeight={(x, z) => 0}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                  characterPosition={characterPositionVector.current}
+                />
+              )}
+            {map === "map5(copy)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              !enableSimonDevGrass11 &&
+              enableSimonDevGrass10 && (
+                <SimonDevGrass10
+                  areaSize={50}
+                  getGroundHeight={(x, z) => 0}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                />
+              )}
+            {map === "map5(copy)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              !enableSimonDevGrass11 &&
+              !enableSimonDevGrass10 &&
+              enableSimonDevGrass9 && (
+                <SimonDevGrass9
+                  areaSize={50}
+                  getGroundHeight={(x, z) => 0}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                />
+              )}
             {/* Dust Particles for map5 - Atmospheric wind-blown dust effect */}
             {map === "map5(copy)" && enableDustParticles && (
               <DustParticles
@@ -911,34 +1176,66 @@ export const Experience = () => {
               />
             )}
 
-            {/* SimonDev Grass for map6 - TERRAIN-AWARE! */}
-            {map === "map6(heightmap-terrain)" && enableSimonDevGrass9 && (
-              <SimonDevGrass9
-                areaSize={50}
-                getGroundHeight={getTerrainHeight}
-                grassHeight={1.0}
-                grassScale={1.0}
-              />
-            )}
-
-            {map === "map6(heightmap-terrain)" && enableSimonDevGrass10 && (
-              <SimonDevGrass10
-                areaSize={50}
-                getGroundHeight={getTerrainHeight}
-                grassHeight={1.0}
-                grassScale={1.0}
-              />
-            )}
-
-            {map === "map6(heightmap-terrain)" && enableSimonDevGrass11 && (
-              <SimonDevGrass11
+            {/* SimonDev Grass for map6 - Only one version active at a time (LOD has highest priority) */}
+            {map === "map6(heightmap-terrain)" && enableSimonGrassLOD && (
+              <SimonGrassLOD
+                key="simon-grass-lod"
                 areaSize={200}
                 getGroundHeight={getTerrainHeight}
                 grassHeight={1.0}
                 grassScale={1.0}
                 characterPosition={characterPositionVector.current}
+                map={map}
               />
             )}
+            {map === "map6(heightmap-terrain)" &&
+              !enableSimonGrassLOD &&
+              enableSimonDevGrass12 && (
+                <SimonDevGrass12
+                  areaSize={200}
+                  getGroundHeight={getTerrainHeight}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                  characterPosition={characterPositionVector.current}
+                />
+              )}
+            {map === "map6(heightmap-terrain)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              enableSimonDevGrass11 && (
+                <SimonDevGrass11
+                  areaSize={200}
+                  getGroundHeight={getTerrainHeight}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                  characterPosition={characterPositionVector.current}
+                />
+              )}
+            {map === "map6(heightmap-terrain)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              !enableSimonDevGrass11 &&
+              enableSimonDevGrass10 && (
+                <SimonDevGrass10
+                  areaSize={50}
+                  getGroundHeight={getTerrainHeight}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                />
+              )}
+            {map === "map6(heightmap-terrain)" &&
+              !enableSimonGrassLOD &&
+              !enableSimonDevGrass12 &&
+              !enableSimonDevGrass11 &&
+              !enableSimonDevGrass10 &&
+              enableSimonDevGrass9 && (
+                <SimonDevGrass9
+                  areaSize={50}
+                  getGroundHeight={getTerrainHeight}
+                  grassHeight={1.0}
+                  grassScale={1.0}
+                />
+              )}
 
             {/* Dust Particles for map6 */}
             {map === "map6(heightmap-terrain)" && enableDustParticles && (

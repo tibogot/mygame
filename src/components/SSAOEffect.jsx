@@ -1,4 +1,5 @@
-import React, { useRef, Suspense } from "react";
+import React, { useRef, Suspense, useEffect } from "react";
+import * as THREE from "three";
 import {
   EffectComposer,
   SSAO,
@@ -26,6 +27,7 @@ export const SSAOEffect = () => {
 
   const {
     enablePostProcessing,
+    enableColorManagement,
     enabled,
     aoRadius,
     distanceFalloff,
@@ -35,6 +37,7 @@ export const SSAOEffect = () => {
     denoiseSamples,
     denoiseRadius,
     halfRes,
+    gammaCorrection,
     godRaysEnabled,
     samples,
     density,
@@ -60,6 +63,10 @@ export const SSAOEffect = () => {
         enablePostProcessing: {
           value: false,
           label: "✨ Enable Post-Processing",
+        },
+        enableColorManagement: {
+          value: true,
+          label: "🎨 Enable Color Management (THREE.ColorManagement)",
         },
       },
       { collapsed: true }
@@ -119,6 +126,10 @@ export const SSAOEffect = () => {
         halfRes: {
           value: false,
           label: "📊 Half Resolution (breaks HDRI!)",
+        },
+        gammaCorrection: {
+          value: false,
+          label: "🎨 Gamma Correction (disable to prevent artifacts)",
         },
       },
       { collapsed: true }
@@ -265,6 +276,12 @@ export const SSAOEffect = () => {
     ),
   });
 
+  // Set up color management
+  useEffect(() => {
+    THREE.ColorManagement.enabled = enableColorManagement;
+    console.log(`🎨 Color Management enabled: ${enableColorManagement}`);
+  }, [enableColorManagement]);
+
   // Map preset string to SMAAPreset enum
   const smaaPresetMap = {
     low: SMAAPreset.LOW,
@@ -293,7 +310,10 @@ export const SSAOEffect = () => {
       <Sun ref={sunRef} />
 
       <Suspense fallback={null}>
-        <EffectComposer multisampling={multisampling}>
+        <EffectComposer
+          multisampling={multisampling}
+          frameBufferType={THREE.HalfFloatType}
+        >
           {/* N8AO - Advanced ambient occlusion (works with R3F!) */}
           {enabled && (
             <N8AO
@@ -305,6 +325,7 @@ export const SSAOEffect = () => {
               denoiseSamples={denoiseSamples}
               denoiseRadius={denoiseRadius}
               halfRes={halfRes}
+              gammaCorrection={gammaCorrection}
             />
           )}
 
@@ -348,7 +369,7 @@ export const SSAOEffect = () => {
 
           {/* SMAA Anti-Aliasing - Shader-based AA */}
           {antiAliasingMode === "smaa" && (
-            <SMAA preset={smaaPresetMap[smaaPreset]} />
+            <SMAA preset={smaaPresetMap[smaaPreset]} outputEncoding={false} />
           )}
         </EffectComposer>
       </Suspense>

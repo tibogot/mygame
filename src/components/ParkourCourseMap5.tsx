@@ -13,8 +13,23 @@ import { WaterShaderFull } from "./WaterShaderFull";
 import { WaterShaderQuickGrass } from "./WaterShaderQuickGrass";
 import { ImpostorForest } from "./ImpostorForest";
 import { GroundScatterBatched } from "./GroundScatterBatched";
+import { OcclusionTest } from "./OcclusionTest";
+import { MultiOccluderTest, useMultiOccluderTest } from "./MultiOccluderTest";
+import { AdvancedMultiOccluderTest } from "./AdvancedMultiOccluderTest";
+import { OcclusionTestOptimized } from "./OcclusionTestOptimized";
+import { TileMaterial } from "./TileMaterial";
+import { WedgeSlope } from "./WedgeSlope";
+import LODDebugger from "./DEBUG/LODdebugger";
 
 export const ParkourCourseMap5 = () => {
+  // Multi-occluder test hook
+  const multiOccluderTest = useMultiOccluderTest();
+
+  // Load grid texture for testing
+  const gridTexture = useTexture("/textures/grid.png");
+  gridTexture.wrapS = gridTexture.wrapT = THREE.RepeatWrapping;
+  gridTexture.anisotropy = 16;
+
   // Load mountain model for background (RESTORED - your original mountain!)
   const { scene: mountainScene } = useGLTF("/models/mountain.glb");
 
@@ -250,6 +265,31 @@ export const ParkourCourseMap5 = () => {
     ),
   });
 
+  // LOD Debugger controls
+  const { enableLODDebugger, lodDebuggerPosition, lodDebuggerScale } =
+    useControls("🔍 DEBUG", {
+      lodDebugger: folder(
+        {
+          enableLODDebugger: {
+            value: false,
+            label: "🎯 Enable LOD Debugger",
+          },
+          lodDebuggerPosition: {
+            value: { x: 0, y: 2, z: 0 },
+            label: "Position",
+          },
+          lodDebuggerScale: {
+            value: 1,
+            min: 0.1,
+            max: 3,
+            step: 0.1,
+            label: "Scale",
+          },
+        },
+        { collapsed: true }
+      ),
+    });
+
   // Shadow test plane toggle
   const { enableShadowTestPlane, shadowPlaneHeight, shadowPlaneSize } =
     useControls("🔍 DEBUG", {
@@ -277,6 +317,241 @@ export const ParkourCourseMap5 = () => {
         { collapsed: true }
       ),
     });
+
+  // Occlusion culling test controls
+  const {
+    enableOcclusionTest,
+    occlusionTestPosition,
+    targetPosition,
+    occluderSize,
+    targetRadius,
+    showOcclusionDebug,
+  } = useControls("🔍 DEBUG", {
+    occlusionTest: folder(
+      {
+        enableOcclusionTest: {
+          value: false,
+          label: "🎯 Enable Occlusion Test",
+        },
+        occlusionTestPosition: {
+          value: { x: 0, y: 0, z: 0 },
+          label: "Occluder Position",
+        },
+        targetPosition: {
+          value: { x: 0, y: 0, z: -3 },
+          label: "Target Position",
+        },
+        occluderSize: {
+          value: { x: 6, y: 6 },
+          label: "Occluder Size",
+        },
+        targetRadius: {
+          value: 0.5,
+          min: 0.1,
+          max: 2,
+          step: 0.1,
+          label: "Target Radius",
+        },
+        showOcclusionDebug: {
+          value: true,
+          label: "Show Debug Info",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
+
+  // Multi-occluder test controls
+  const {
+    enableMultiOccluderTest,
+    multiTargetPosition,
+    multiTargetRadius,
+    showMultiOccluderDebug,
+    showMultiOccluders,
+    addRandomOccluder,
+    clearAllOccluders,
+    resetToDefaultOccluders,
+  } = useControls("🔍 DEBUG", {
+    multiOccluderTest: folder(
+      {
+        enableMultiOccluderTest: {
+          value: false,
+          label: "🎯 Enable Multi-Occluder Test",
+        },
+        multiTargetPosition: {
+          value: { x: 0, y: 0, z: -5 },
+          label: "Target Position",
+        },
+        multiTargetRadius: {
+          value: 0.5,
+          min: 0.1,
+          max: 2,
+          step: 0.1,
+          label: "Target Radius",
+        },
+        showMultiOccluderDebug: {
+          value: true,
+          label: "Show Debug Info",
+        },
+        showMultiOccluders: {
+          value: true,
+          label: "Show Occluder Planes",
+        },
+        addRandomOccluder: {
+          value: false,
+          label: "🎲 Add Random Occluder",
+        },
+        clearAllOccluders: {
+          value: false,
+          label: "🗑️ Clear All Occluders",
+        },
+        resetToDefaultOccluders: {
+          value: false,
+          label: "🔄 Reset to Defaults",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
+
+  // Handle multi-occluder test actions
+  React.useEffect(() => {
+    if (addRandomOccluder) {
+      const colors = [
+        "#ff0000",
+        "#00ff00",
+        "#0000ff",
+        "#ffff00",
+        "#ff00ff",
+        "#00ffff",
+        "#ff8800",
+        "#8800ff",
+      ];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+      multiOccluderTest.addOccluder({
+        position: [
+          (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 4,
+          (Math.random() - 0.5) * 10,
+        ] as [number, number, number],
+        size: [2 + Math.random() * 6, 2 + Math.random() * 6] as [
+          number,
+          number
+        ],
+        color: randomColor,
+        rotation: [0, (Math.random() - 0.5) * Math.PI, 0] as [
+          number,
+          number,
+          number
+        ],
+      });
+    }
+  }, [addRandomOccluder, multiOccluderTest]);
+
+  React.useEffect(() => {
+    if (clearAllOccluders) {
+      multiOccluderTest.clearOccluders();
+    }
+  }, [clearAllOccluders, multiOccluderTest]);
+
+  React.useEffect(() => {
+    if (resetToDefaultOccluders) {
+      multiOccluderTest.resetToDefaults();
+    }
+  }, [resetToDefaultOccluders, multiOccluderTest]);
+
+  // Advanced multi-occluder test controls
+  const {
+    enableAdvancedMultiOccluderTest,
+    advancedTargetPosition,
+    advancedTargetRadius,
+    showAdvancedDebug,
+  } = useControls("🔍 DEBUG", {
+    advancedMultiOccluder: folder(
+      {
+        enableAdvancedMultiOccluderTest: {
+          value: false,
+          label: "🎯 Enable Advanced Multi-Occluder",
+        },
+        advancedTargetPosition: {
+          value: { x: 0, y: 0, z: -5 },
+          label: "Target Position",
+        },
+        advancedTargetRadius: {
+          value: 0.5,
+          min: 0.1,
+          max: 2,
+          step: 0.1,
+          label: "Target Radius",
+        },
+        showAdvancedDebug: {
+          value: true,
+          label: "Show Debug Info",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
+
+  // Optimized occlusion test controls
+  const {
+    enableOptimizedOcclusionTest,
+    optimizedOccluderPosition,
+    optimizedTargetPosition,
+    optimizedOccluderSize,
+    optimizedTargetRadius,
+    optimizedTestFrequency,
+    optimizedTestPointCount,
+    showOptimizedDebug,
+  } = useControls("🔍 DEBUG", {
+    optimizedOcclusion: folder(
+      {
+        enableOptimizedOcclusionTest: {
+          value: false,
+          label: "🚀 Enable Optimized Occlusion",
+        },
+        optimizedOccluderPosition: {
+          value: { x: 0, y: 0, z: 0 },
+          label: "Occluder Position",
+        },
+        optimizedTargetPosition: {
+          value: { x: 0, y: 0, z: -3 },
+          label: "Target Position",
+        },
+        optimizedOccluderSize: {
+          value: { x: 6, y: 6 },
+          label: "Occluder Size",
+        },
+        optimizedTargetRadius: {
+          value: 0.5,
+          min: 0.1,
+          max: 2,
+          step: 0.1,
+          label: "Target Radius",
+        },
+        optimizedTestFrequency: {
+          value: 10,
+          min: 1,
+          max: 30,
+          step: 1,
+          label: "Test Frequency (frames)",
+        },
+        optimizedTestPointCount: {
+          value: 8,
+          min: 4,
+          max: 20,
+          step: 1,
+          label: "Test Point Count",
+        },
+        showOptimizedDebug: {
+          value: true,
+          label: "Show Debug Info",
+        },
+      },
+      { collapsed: true }
+    ),
+  });
 
   // Water shader controls
   const {
@@ -348,12 +623,7 @@ export const ParkourCourseMap5 = () => {
     },
   });
 
-  // Use the same grid texture as the ground
-  const gridTexture = useTexture("/textures/grid.png");
-
-  // Configure texture - EXACT same as PlaneMap
-  gridTexture.wrapS = gridTexture.wrapT = THREE.RepeatWrapping;
-  gridTexture.anisotropy = 16;
+  // Use the same grid texture as the ground (already loaded above)
 
   // Memoize uniforms
   const uniforms = useMemo(
@@ -1204,6 +1474,67 @@ export const ParkourCourseMap5 = () => {
         <TileMaterial />
       </mesh>
 
+      {/* ========== TILE MATERIAL TEST CUBE ========== */}
+      {/* Test cube using external TileMaterial component */}
+      <RigidBody
+        type="fixed"
+        colliders="cuboid"
+        position={[50, 1, 50]}
+        friction={1}
+      >
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[4, 2, 4]} />
+          <TileMaterial />
+        </mesh>
+      </RigidBody>
+
+      {/* ========== PERFECT FLOATING CUBE ========== */}
+      {/* Perfect cube floating near center for testing TileMaterial */}
+      <RigidBody
+        type="fixed"
+        colliders="cuboid"
+        position={[0, 3, 0]}
+        friction={1}
+      >
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[2, 2, 2]} />
+          <meshStandardMaterial
+            map={gridTexture}
+            roughness={1.0}
+            metalness={0.0}
+          />
+        </mesh>
+      </RigidBody>
+
+      {/* ========== SECOND FLOATING CUBE ========== */}
+      {/* Second cube close to the first one on X-axis */}
+      <RigidBody
+        type="fixed"
+        colliders="cuboid"
+        position={[4, 3, 0]}
+        friction={1}
+      >
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[2, 2, 2]} />
+          <meshStandardMaterial
+            map={gridTexture}
+            roughness={1.0}
+            metalness={0.0}
+          />
+        </mesh>
+      </RigidBody>
+
+      {/* ========== WEDGE SLOPE ========== */}
+      <WedgeSlope
+        position={[40, 0, 40]}
+        rotation={[0, Math.PI / 4, 0]}
+        friction={1}
+        color="#ffff00"
+        width={8}
+        height={3}
+        depth={4}
+      />
+
       {/* ========== TRAMPOLINE / BOUNCE PAD ========== */}
       {/* Trampoline surface - HIGH restitution for bounce */}
       <RigidBody
@@ -1256,6 +1587,18 @@ export const ParkourCourseMap5 = () => {
       {/* ========== MATERIAL SHOWCASE SPHERES ========== */}
       {enableMaterialSpheres && <SpheresMaterials />}
 
+      {/* ========== LOD DEBUGGER ========== */}
+      {enableLODDebugger && (
+        <LODDebugger
+          position={[
+            lodDebuggerPosition.x,
+            lodDebuggerPosition.y,
+            lodDebuggerPosition.z,
+          ]}
+          scale={lodDebuggerScale}
+        />
+      )}
+
       {/* ========== SHADOW TEST PLANE ========== */}
       {/* Horizontal plane to test shadow casting onto grass below */}
       {enableShadowTestPlane && (
@@ -1275,6 +1618,87 @@ export const ParkourCourseMap5 = () => {
             metalness={0.1}
           />
         </mesh>
+      )}
+
+      {/* ========== OCCLUSION CULLING TEST ========== */}
+      {enableOcclusionTest && (
+        <OcclusionTest
+          occluderPosition={[
+            occlusionTestPosition.x,
+            occlusionTestPosition.y,
+            occlusionTestPosition.z,
+          ]}
+          targetPosition={[
+            targetPosition.x,
+            targetPosition.y,
+            targetPosition.z,
+          ]}
+          occluderSize={[occluderSize.x, occluderSize.y]}
+          targetRadius={targetRadius}
+          showDebug={showOcclusionDebug}
+          onOcclusionChange={(isOccluded, percentage) => {
+            // Removed console.log for performance - occlusion test working silently
+          }}
+        />
+      )}
+
+      {/* ========== MULTI-OCCLUDER TEST ========== */}
+      {enableMultiOccluderTest && (
+        <MultiOccluderTest
+          targetPosition={[
+            multiTargetPosition.x,
+            multiTargetPosition.y,
+            multiTargetPosition.z,
+          ]}
+          targetRadius={multiTargetRadius}
+          showDebug={showMultiOccluderDebug}
+          showOccluders={showMultiOccluders}
+          occluders={multiOccluderTest.occluders}
+          onOcclusionChange={(isOccluded, percentage) => {
+            // Removed console.log for performance - multi-occluder test working silently
+            multiOccluderTest.handleOcclusionChange(isOccluded, percentage);
+          }}
+        />
+      )}
+
+      {/* ========== ADVANCED MULTI-OCCLUDER TEST ========== */}
+      {enableAdvancedMultiOccluderTest && (
+        <AdvancedMultiOccluderTest
+          targetPosition={[
+            advancedTargetPosition.x,
+            advancedTargetPosition.y,
+            advancedTargetPosition.z,
+          ]}
+          targetRadius={advancedTargetRadius}
+          showDebug={showAdvancedDebug}
+          onOcclusionChange={(isOccluded, percentage) => {
+            // Removed console.log for performance - advanced multi-occluder test working silently
+          }}
+        />
+      )}
+
+      {/* ========== OPTIMIZED OCCLUSION TEST ========== */}
+      {enableOptimizedOcclusionTest && (
+        <OcclusionTestOptimized
+          occluderPosition={[
+            optimizedOccluderPosition.x,
+            optimizedOccluderPosition.y,
+            optimizedOccluderPosition.z,
+          ]}
+          targetPosition={[
+            optimizedTargetPosition.x,
+            optimizedTargetPosition.y,
+            optimizedTargetPosition.z,
+          ]}
+          occluderSize={[optimizedOccluderSize.x, optimizedOccluderSize.y]}
+          targetRadius={optimizedTargetRadius}
+          testFrequency={optimizedTestFrequency}
+          testPointCount={optimizedTestPointCount}
+          showDebug={showOptimizedDebug}
+          onOcclusionChange={(isOccluded, percentage) => {
+            // Optimized version - no console logs for maximum performance
+          }}
+        />
       )}
 
       {/* ========== WATER SHADER - SWIMMING POOL ========== */}
